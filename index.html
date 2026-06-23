@@ -89,6 +89,7 @@
   .chip:hover{border-color:var(--accent)}
 
   .mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .fmt-cards{display:grid;grid-template-columns:1fr;gap:10px}
   .mode-card{
     padding:14px;border-radius:14px;border:1.5px solid var(--line);background:#0c141d;cursor:pointer;transition:.15s;
   }
@@ -219,8 +220,8 @@
 const LS_KEY = "mexicano_padel_v1";
 
 function defaultState(){
-  return {stage:"setup", mode:"rotating", target:24, courts:2, scoring:"fixed", maxRounds:0,
-          players:[], teams:[], rounds:[], _pid:1, _tid:1, _mid:1};
+  return {stage:"setup", mode:"rotating", schedule:"mexicano", legs:1, target:24, courts:2, scoring:"fixed", maxRounds:0,
+          players:[], teams:[], rounds:[], cur:0, _pid:1, _tid:1, _mid:1};
 }
 let state = loadState() || defaultState();
 let sel = []; // выбранные игроки для создания команды (только UI)
@@ -229,7 +230,12 @@ function loadState(){
   try{
     const p=JSON.parse(localStorage.getItem(LS_KEY));
     if(!p)return null;
-    return Object.assign(defaultState(), p); // миграция: дополняем новыми полями (scoring, maxRounds…)
+    const hadCur=(typeof p.cur==="number");          // было ли поле в самом сейве (а не в дефолтах)
+    const s=Object.assign(defaultState(), p);        // миграция: дополняем новыми полями (scoring, schedule, cur…)
+    const lastIdx=Math.max(0,(s.rounds||[]).length-1);
+    if(!hadCur) s.cur=lastIdx;                        // старый сейв без cur — встаём на последний раунд
+    s.cur=Math.min(Math.max(0,s.cur||0),lastIdx);    // защита от выхода за диапазон
+    return s;
   }catch(e){return null;}
 }
 function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
@@ -238,6 +244,7 @@ function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=
 
 /* ---------- units / helpers ---------- */
 function isTeams(){return state.mode==="teams";}
+function isRR(){return state.schedule==="roundrobin";}
 function getUnits(){return isTeams()? state.teams.map(t=>({id:t.id})) : state.players.map(p=>({id:p.id}));}
 function playerName(id){const p=state.players.find(p=>p.id===id);return p?p.name:"?";}
 function teamLabel(t){return playerName(t.p1)+" / "+playerName(t.p2);}
@@ -249,6 +256,7 @@ function pairedIds(){const s=new Set();state.teams.forEach(t=>{s.add(t.p1);s.add
 function findMatch(mid){for(const r of state.rounds)for(const m of r.matches)if(m.id===mid)return m;return null;}
 function sideNamesInline(ids){return ids.map(id=>esc(unitName(id))).join(" + ");}
 function pluralRound(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"раундов";if(b>1&&b<5)return"раунда";if(b===1)return"раунд";return"раундов";}
+function pluralMatch(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"матчей";if(b>1&&b<5)return"матча";if(b===1)return"матч";return"матчей";}
 
 /* ---------- stats / standings ---------- */
 function computeStats(){
@@ -265,8 +273,11 @@ function computeStats(){
   return stats;
 }
 function standings(){
-  const s=computeStats();
-  return Object.values(s).sort((x,y)=>
+  const arr=Object.values(computeStats());
+  if(isRR())  // круговая: сперва победы, затем разница очков, затем набранные
+    return arr.sort((x,y)=>
+      y.wins-x.wins || (y.pf-y.pa)-(x.pf-x.pa) || y.pf-x.pf || unitName(x.id).localeCompare(unitName(y.id),"ru"));
+  return arr.sort((x,y)=>   // Mexicano: сперва набранные очки, затем разница
     y.pf-x.pf || (y.pf-y.pa)-(x.pf-x.pa) || y.wins-x.wins || unitName(x.id).localeCompare(unitName(y.id),"ru"));
 }
 
@@ -297,13 +308,59 @@ function generateRound(){
     court++;
   }
   state.rounds.push({n:state.rounds.length+1,matches,byes});
+  state.cur=state.rounds.length-1;
   save();
 }
-function lastRound(){return state.rounds[state.rounds.length-1];}
+
+/* Полное круговое расписание (round robin): каждая команда играет с каждой.
+   Метод кругов даёт сбалансированные «туры»; делим их на раунды по числу кортов. */
+function generateFullSchedule(){
+  let units=shuffle(state.teams.map(t=>t.id));      // порядок раз перемешиваем для разнообразия
+  const arr=units.slice();
+  if(arr.length%2!==0) arr.push(null);              // нечётное число — фиктивная команда = пропуск
+  const n=arr.length, half=n/2;
+  const circleRounds=[];                            // каждый тур: список пар [a,b], команды не повторяются
+  let ring=arr.slice();
+  for(let r=0;r<n-1;r++){
+    const pairs=[];
+    for(let i=0;i<half;i++){
+      const a=ring[i], b=ring[n-1-i];
+      if(a!=null&&b!=null) pairs.push([a,b]);
+    }
+    circleRounds.push(pairs);
+    ring=[ring[0], ring[n-1], ...ring.slice(1,n-1)]; // фиксируем первый, остальных вращаем
+  }
+  // legs кругов; во втором круге меняем хозяев местами (чисто косметика)
+  const legRounds=[];
+  for(let leg=0;leg<Math.max(1,state.legs||1);leg++){
+    circleRounds.forEach(pairs=>legRounds.push(pairs.map(p=>leg%2?[p[1],p[0]]:[p[0],p[1]])));
+  }
+  // делим каждый тур на раунды по числу кортов (внутри тура команды и так не пересекаются)
+  state.rounds=[];
+  const C=Math.max(1,state.courts);
+  legRounds.forEach(pairs=>{
+    for(let i=0;i<pairs.length;i+=C){
+      const chunk=pairs.slice(i,i+C);
+      const matches=chunk.map((p,idx)=>({id:uid("mid"),court:idx+1,a:[p[0]],b:[p[1]],sa:null,sb:null,done:false}));
+      state.rounds.push({n:state.rounds.length+1,matches,byes:[],rr:true});
+    }
+  });
+  state.cur=0;
+  save();
+}
+
+function curRound(){return state.rounds[state.cur];}
 function roundComplete(r){return r&&r.matches.length>0&&r.matches.every(m=>m.done);}
+function roundWaiting(r){
+  if(!isRR()) return r.byes||[];
+  const playing=new Set();
+  r.matches.forEach(m=>{m.a.forEach(x=>playing.add(x));m.b.forEach(x=>playing.add(x));});
+  return getUnits().map(u=>u.id).filter(id=>!playing.has(id));
+}
 
 /* ---------- actions ---------- */
-function setMode(m){state.mode=m;sel=[];save();render();}
+function setFormat(mode,schedule){state.mode=mode;state.schedule=schedule;sel=[];save();render();}
+function setLegs(n){state.legs=n;save();render();}
 function setTarget(v){state.target=v;save();render();}
 function setCourts(d){state.courts=Math.max(1,Math.min(12,state.courts+d));save();render();}
 function setScoring(s){state.scoring=s;save();render();}
@@ -348,12 +405,20 @@ function startTournament(){
     if(state.players.length<4){alert("Нужно минимум 4 игрока.");return;}
   }
   state.stage="play";
-  if(state.rounds.length===0)generateRound();
+  if(state.rounds.length===0){
+    if(isRR()) generateFullSchedule();
+    else generateRound();
+  }
   save();render();
 }
 function nextRound(){
-  const r=lastRound();
+  const r=curRound();
   if(!roundComplete(r))return;
+  if(isRR()){
+    if(state.cur>=state.rounds.length-1){ finishTournament(); return; }
+    state.cur++; save(); render(); window.scrollTo({top:0,behavior:"smooth"});
+    return;
+  }
   if(state.maxRounds && r.n>=state.maxRounds){ finishTournament(); return; }
   generateRound();
   render();
@@ -365,8 +430,10 @@ function finishTournament(){
 }
 function continuePlay(){
   state.stage="play";
-  const r=lastRound();
-  if(r&&roundComplete(r))generateRound();
+  if(!isRR()){
+    const r=curRound();
+    if(r&&roundComplete(r))generateRound();
+  }
   save();render();
   window.scrollTo({top:0,behavior:"smooth"});
 }
@@ -378,8 +445,8 @@ function newTournament(){
 function resultsText(){
   const rows=standings();
   let t="🎾 Mexicano Padel — итоги\n";
-  t+=(isTeams()?"Команды":"Классический")+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · до "+state.target+"\n\n";
-  rows.forEach((r,i)=>{ t+=(i+1)+". "+unitName(r.id)+" — "+r.pf+" очк. ("+r.wins+"П)\n"; });
+  t+=(isRR()?"Round robin":(isTeams()?"Команды":"Классический"))+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · до "+state.target+"\n\n";
+  rows.forEach((r,i)=>{ t+=(i+1)+". "+unitName(r.id)+" — "+(isRR()?(r.wins+"П, "+r.pf+" очк."):(r.pf+" очк. ("+r.wins+"П)"))+"\n"; });
   return t;
 }
 function flashMsg(text){
@@ -443,9 +510,11 @@ function clearScore(mid){
 
 /* ---------- rendering ---------- */
 function render(){
-  const fmt = (isTeams()?"Команды":"Классический") + " · до " + state.target + " · "
+  const fmtName = isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
+  const totalR = isRR() ? state.rounds.length : state.maxRounds;
+  const fmt = fmtName + " · до " + state.target + " · "
       + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов"))
-      + (state.maxRounds?(" · "+state.maxRounds+" р."):"");
+      + (totalR?(" · "+totalR+" р."):"");
   document.getElementById("topSub").textContent =
     state.stage==="setup" ? "Настройка турнира" : state.stage==="finish" ? "Итоги турнира" : fmt;
   document.getElementById("newBtn").style.display = state.stage==="setup" ? "none" : "";
@@ -502,14 +571,18 @@ function setupHTML(){
   <div class="grid-setup">
     <div class="panel">
       <h2>Формат</h2>
-      <div class="mode-toggle">
-        <div class="mode-card ${state.mode==="rotating"?"active":""}" onclick="setMode('rotating')">
-          <div class="t">Меняющиеся партнёры</div>
+      <div class="fmt-cards">
+        <div class="mode-card ${state.mode==="rotating"&&!isRR()?"active":""}" onclick="setFormat('rotating','mexicano')">
+          <div class="t">Mexicano · меняющиеся партнёры</div>
           <div class="d">Классический Mexicano. Каждый раунд новые пары по рейтингу (1+4 vs 2+3). Очки личные.</div>
         </div>
-        <div class="mode-card ${state.mode==="teams"?"active":""}" onclick="setMode('teams')">
-          <div class="t">Фиксированные команды</div>
+        <div class="mode-card ${state.mode==="teams"&&!isRR()?"active":""}" onclick="setFormat('teams','mexicano')">
+          <div class="t">Mexicano · фиксированные команды</div>
           <div class="d">Пары не меняются. Соперники подбираются по таблице (1 vs 2, 3 vs 4).</div>
+        </div>
+        <div class="mode-card ${isRR()?"active":""}" onclick="setFormat('teams','roundrobin')">
+          <div class="t">Round robin · команды</div>
+          <div class="d">Круговая система: каждая команда играет с каждой. Расписание фиксировано заранее.</div>
         </div>
       </div>
 
@@ -538,12 +611,7 @@ function setupHTML(){
         <button onclick="setCourts(1)">＋</button>
       </div>
 
-      <h3 style="margin-top:20px">Количество раундов</h3>
-      <div class="chips">
-        ${[4,6,8,10].map(v=>`<div class="chip ${state.maxRounds===v?"active":""}" onclick="setMaxRounds(${v})">${v}</div>`).join("")}
-        <div class="chip ${state.maxRounds===0?"active":""}" onclick="setMaxRounds(0)">∞ без лимита</div>
-      </div>
-      <div class="hint" style="margin-top:8px">После последнего раунда покажем пьедестал. «Без лимита» — играете, пока не нажмёте «Завершить».</div>
+      ${roundsSettingHTML()}
     </div>
 
     <div class="panel">
@@ -574,16 +642,56 @@ function setupHTML(){
   </div>`;
 }
 
+function rrInfo(){
+  const T=state.teams.length, C=Math.max(1,state.courts), L=Math.max(1,state.legs||1);
+  if(T<2) return {teams:T, matches:0, rounds:0};
+  const n=T%2?T+1:T;
+  const pairsPerRound = T%2 ? (T-1)/2 : T/2;
+  const circleRounds = n-1;
+  const rounds = circleRounds*Math.ceil(pairsPerRound/C)*L;
+  return {teams:T, matches: T*(T-1)/2*L, rounds};
+}
+function roundsSettingHTML(){
+  if(isRR()){
+    const info=rrInfo();
+    return `
+      <h3 style="margin-top:20px">Кругов (каждый с каждым)</h3>
+      <div class="chips">
+        <div class="chip ${state.legs===1?"active":""}" onclick="setLegs(1)">1 круг</div>
+        <div class="chip ${state.legs===2?"active":""}" onclick="setLegs(2)">2 круга</div>
+      </div>
+      <div class="hint" style="margin-top:8px">${info.teams>=2
+        ? `Будет ${info.rounds} ${pluralRound(info.rounds)}, всего ${info.matches} ${pluralMatch(info.matches)}. Каждая команда сыграет с каждой${state.legs===2?" дважды":""}.`
+        : "Добавьте минимум 2 команды — расписание построится автоматически."}</div>`;
+  }
+  return `
+    <h3 style="margin-top:20px">Количество раундов</h3>
+    <div class="chips">
+      ${[4,6,8,10].map(v=>`<div class="chip ${state.maxRounds===v?"active":""}" onclick="setMaxRounds(${v})">${v}</div>`).join("")}
+      <div class="chip ${state.maxRounds===0?"active":""}" onclick="setMaxRounds(0)">∞ без лимита</div>
+    </div>
+    <div class="hint" style="margin-top:8px">После последнего раунда покажем пьедестал. «Без лимита» — играете, пока не нажмёте «Завершить».</div>`;
+}
 function setupWarning(){
   const msgs=[];
-  if(isTeams()){
+  if(isRR()){
+    const paired=pairedIds();
+    const free=state.players.filter(p=>!paired.has(p.id)).length;
+    if(free>0)msgs.push(`Не разбито по командам игроков: ${free}. Они не попадут в турнир.`);
+    if(state.teams.length<2)msgs.push("Для круговой системы нужно минимум 2 команды.");
+    const half=Math.floor(state.teams.length/2);
+    if(state.teams.length>=2 && state.courts>half)
+      msgs.push(`Кортов больше, чем матчей в туре (${half}). Часть кортов будет простаивать.`);
+    if(state.teams.length%2!==0 && state.teams.length>=2)
+      msgs.push("Нечётное число команд — в каждом туре одна команда пропускает (по очереди).");
+  }else if(isTeams()){
     const paired=pairedIds();
     const free=state.players.filter(p=>!paired.has(p.id)).length;
     if(free>0)msgs.push(`Не разбито по командам игроков: ${free}. Они не попадут в турнир.`);
     if(state.teams.length>0 && state.teams.length<2)msgs.push("Для турнира нужно минимум 2 команды.");
     const matchesNeed=Math.floor(state.teams.length/2);
     if(state.teams.length>=2 && state.courts>matchesNeed)
-      msgs.push(`Кортов больше, чем нужно: одновременно играют ${matchesNeed} ${matchesNeed===1?"матч":"матча"}. Лишние корты простаивают.`);
+      msgs.push(`Кортов больше, чем нужно: одновременно играют ${matchesNeed} ${pluralMatch(matchesNeed)}. Лишние корты простаивают.`);
     if(state.teams.length%2!==0 && state.teams.length>=2)
       msgs.push("Нечётное число команд — каждый раунд одна команда отдыхает (по очереди).");
   }else{
@@ -591,7 +699,7 @@ function setupWarning(){
       msgs.push("Число игроков не кратно 4 — каждый раунд кто-то отдыхает (отдых распределяется по очереди).");
     const maxMatches=Math.floor(state.players.length/4);
     if(state.players.length>=4 && state.courts>maxMatches)
-      msgs.push(`Кортов больше, чем нужно: одновременно играют ${maxMatches} ${maxMatches===1?"матч":"матча"}.`);
+      msgs.push(`Кортов больше, чем нужно: одновременно играют ${maxMatches} ${pluralMatch(maxMatches)}.`);
   }
   return msgs.length? `<div class="warnbox">⚠ ${msgs.join("<br>")}</div>` : "";
 }
@@ -620,24 +728,26 @@ function renderPlay(){
 }
 
 function renderCurrentRound(){
-  const r=lastRound();
+  const r=curRound();
   const el=document.getElementById("curRound");
-  const byesHTML = (r.byes&&r.byes.length)
-    ? `<div class="byes">😴 Отдыхают: <b>${r.byes.map(id=>esc(unitName(id))).join(", ")}</b></div>` : "";
-  const atLimit = state.maxRounds && r.n>=state.maxRounds;
+  const wait=roundWaiting(r);
+  const waitHTML = wait.length
+    ? `<div class="byes">${isRR()?"⏳ Ожидают своей очереди":"😴 Отдыхают"}: <b>${wait.map(id=>esc(unitName(id))).join(", ")}</b></div>` : "";
+  const total = isRR()? state.rounds.length : state.maxRounds;
+  const atLast = isRR()? (state.cur>=state.rounds.length-1) : (state.maxRounds && r.n>=state.maxRounds);
   el.innerHTML=`
     <div class="panel">
       <div class="round-head">
-        <span class="badge">Раунд ${r.n}${state.maxRounds?(" / "+state.maxRounds):""}</span>
+        <span class="badge">Раунд ${r.n}${total?(" / "+total):""}</span>
         <span class="muted" id="roundProgress"></span>
         <div class="spacer"></div>
         <button class="ghost sm" onclick="finishTournament()" title="Подвести итоги">🏆 Завершить</button>
-        <button class="primary" id="nextBtn" onclick="nextRound()">${atLimit?"Итоги турнира →":"Следующий раунд →"}</button>
+        <button class="primary" id="nextBtn" onclick="nextRound()">${atLast?"Итоги турнира →":"Следующий раунд →"}</button>
       </div>
       <div class="courts">
         ${r.matches.map(m=>matchHTML(m)).join("")}
       </div>
-      ${byesHTML}
+      ${waitHTML}
     </div>`;
   updateNextBtn();
   r.matches.forEach(m=>updateMatchVisual(m.id));
@@ -689,33 +799,47 @@ function updateMatchVisual(mid){
 }
 
 function updateNextBtn(){
-  const r=lastRound();
+  const r=curRound();
   const btn=document.getElementById("nextBtn");
   const prog=document.getElementById("roundProgress");
   if(!r)return;
   const done=r.matches.filter(m=>m.done).length;
   const all=roundComplete(r);
   if(btn)btn.disabled=!all;
-  if(prog)prog.textContent=`${done}/${r.matches.length} матчей сыграно`;
+  if(prog)prog.textContent=`${done}/${r.matches.length} ${pluralMatch(r.matches.length)} сыграно`;
 }
 
 function renderPastRounds(){
   const el=document.getElementById("pastRounds");
-  const past=state.rounds.slice(0,-1).reverse();
-  if(!past.length){el.innerHTML="";return;}
-  el.innerHTML=past.map(r=>`
-    <details class="past">
-      <summary>Раунд ${r.n} — результаты</summary>
-      ${r.matches.map(m=>{
-        const aw=m.sa>m.sb,bw=m.sb>m.sa;
-        return `<div class="past-match">
-          <span class="${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
-          <span class="s">${m.sa==null?"–":m.sa} : ${m.sb==null?"–":m.sb}</span>
-          <span class="${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
-        </div>`;
-      }).join("")}
-      ${r.byes&&r.byes.length?`<div class="byes">😴 Отдыхали: ${r.byes.map(id=>esc(unitName(id))).join(", ")}</div>`:""}
-    </details>`).join("");
+  let html="";
+  // предстоящие туры — только round robin (расписание известно заранее)
+  if(isRR()){
+    const up=state.rounds.map((r,i)=>({r,i})).filter(x=>x.i>state.cur).map(x=>x.r);
+    if(up.length){
+      html += `<details class="past"><summary>📅 Дальше по расписанию (${up.length})</summary>`
+        + up.map(r=>`<div class="past-match" style="border-top-style:dashed">
+            <span class="muted" style="white-space:nowrap">Раунд ${r.n}</span>
+            <span class="s muted" style="font-weight:600;text-align:right">${r.matches.map(m=>esc(unitName(m.a[0]))+" – "+esc(unitName(m.b[0]))).join("&nbsp; · &nbsp;")}</span>
+          </div>`).join("")
+        + `</details>`;
+    }
+  }
+  // сыгранные раунды
+  const past=state.rounds.map((r,i)=>({r,i})).filter(x=>x.i<state.cur).reverse().map(x=>x.r);
+  past.forEach(r=>{
+    html += `<details class="past"><summary>Раунд ${r.n} — результаты</summary>`
+      + r.matches.map(m=>{
+          const aw=m.sa>m.sb,bw=m.sb>m.sa;
+          return `<div class="past-match">
+            <span class="${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
+            <span class="s">${m.sa==null?"–":m.sa} : ${m.sb==null?"–":m.sb}</span>
+            <span class="${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
+          </div>`;
+        }).join("")
+      + (r.byes&&r.byes.length?`<div class="byes">😴 Отдыхали: ${r.byes.map(id=>esc(unitName(id))).join(", ")}</div>`:"")
+      + `</details>`;
+  });
+  el.innerHTML=html;
 }
 
 function renderStandings(){
@@ -746,7 +870,7 @@ function renderStandings(){
           </tr>`).join("")}
       </tbody>
     </table>
-    <div class="hint" style="margin-top:10px">Рейтинг — по сумме набранных очков, далее по разнице.</div>
+    <div class="hint" style="margin-top:10px">${isRR()?"Рейтинг — по победам, далее по разнице очков.":"Рейтинг — по сумме набранных очков, далее по разнице."}</div>
     ${copyRow}`;
 }
 
@@ -754,24 +878,29 @@ function renderFinish(){
   const rows=standings();
   const medals=["🥇","🥈","🥉"];
   const top=rows.slice(0,3);
+  // round robin: вернуться к расписанию, если оно ещё не доиграно (кнопка «доиграть» в RR смысла не имеет)
+  const rrCanResume = isRR() && !(state.cur>=state.rounds.length-1 && roundComplete(curRound()));
+  const resumeBtn = isRR()
+    ? (rrCanResume?`<button class="ghost" onclick="continuePlay()">↩ Вернуться к турниру</button>`:"")
+    : `<button class="ghost" onclick="continuePlay()">＋ Доиграть ещё раунд</button>`;
   document.getElementById("app").innerHTML=`
     <div class="panel finish">
       <h2 style="text-align:center;font-size:1.45rem">🏆 Итоги турнира</h2>
       <div class="muted" style="text-align:center;margin-bottom:6px">
-        ${isTeams()?"Команды":"Классический"} · ${state.rounds.length} ${pluralRound(state.rounds.length)} · до ${state.target}
+        ${isRR()?"Round robin":(isTeams()?"Команды":"Классический")} · ${state.rounds.length} ${pluralRound(state.rounds.length)} · до ${state.target}
       </div>
       <div class="podium">
         ${top.map((r,i)=>`
           <div class="pod pod${i}">
             <div class="medal">${medals[i]}</div>
             <div class="pname">${esc(unitName(r.id))}</div>
-            <div class="ppts">${r.pf} очк. · ${r.wins}П</div>
+            <div class="ppts">${isRR()?(r.wins+"П · "+r.pf+" очк."):(r.pf+" очк. · "+r.wins+"П")}</div>
           </div>`).join("")}
       </div>
       <div id="standings"></div>
       <div class="row" style="justify-content:center;gap:10px;margin-top:20px;flex-wrap:wrap">
         <button class="primary" onclick="shareResults()">📋 Поделиться результатами</button>
-        <button class="ghost" onclick="continuePlay()">＋ Доиграть ещё раунд</button>
+        ${resumeBtn}
         <button class="danger" onclick="newTournament()">↻ Новый турнир</button>
       </div>
       <div id="shareMsg" class="hint" style="text-align:center;margin-top:10px;min-height:18px"></div>
