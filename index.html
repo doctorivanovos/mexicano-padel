@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mexicano Padel — турниры</title>
+<style>
+  :root{
+    --bg:#0f1720;
+    --panel:#16212e;
+    --panel-2:#1d2b3a;
+    --line:#2a3a4d;
+    --txt:#e8eef5;
+    --muted:#8ea2b6;
+    --accent:#16c79a;       /* padel green */
+    --accent-2:#0e9e7c;
+    --blue:#3aa0ff;
+    --warn:#ffb14e;
+    --gold:#ffd66b;
+    --danger:#ff6b6b;
+    --win:#16c79a;
+    --radius:16px;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+    font-size:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:radial-gradient(1200px 700px at 70% -10%, #1b3040 0%, var(--bg) 55%);
+    color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:18px clamp(12px,3vw,28px) 60px}
+
+  /* Header */
+  .top{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:14px 18px;margin-bottom:18px;
+    background:linear-gradient(120deg,var(--accent-2),#0c6f8a);
+    border-radius:var(--radius);box-shadow:var(--shadow);
+  }
+  .top .logo{font-size:1.5rem;font-weight:800;letter-spacing:.3px;display:flex;align-items:center;gap:10px}
+  .top .logo .ball{font-size:1.4rem}
+  .top .sub{color:rgba(255,255,255,.85);font-size:.9rem;font-weight:600}
+  .top .spacer{flex:1}
+  .top button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.25)}
+  .top button:hover{background:rgba(255,255,255,.28)}
+
+  h2{font-size:1.05rem;margin:0 0 12px;letter-spacing:.2px}
+  h3{font-size:.95rem;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+  .grid-setup{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:780px){.grid-setup{grid-template-columns:1fr 1fr}}
+  .span2{grid-column:1/-1}
+
+  /* Buttons & inputs */
+  button{
+    font:inherit;cursor:pointer;border:none;border-radius:12px;padding:11px 16px;font-weight:700;
+    background:var(--panel-2);color:var(--txt);border:1px solid var(--line);transition:.15s;
+  }
+  button:hover{border-color:var(--accent)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:linear-gradient(120deg,var(--accent),var(--accent-2));color:#04221a;border:none}
+  button.primary:hover{filter:brightness(1.06)}
+  button.ghost{background:transparent}
+  button.danger{background:transparent;border-color:#5a2a2a;color:var(--danger)}
+  button.danger:hover{border-color:var(--danger)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  button.sm{padding:7px 11px;font-size:.85rem;border-radius:10px}
+
+  input[type=text],input[type=number]{
+    font:inherit;background:#0c141d;color:var(--txt);border:1px solid var(--line);
+    border-radius:12px;padding:11px 13px;width:100%;outline:none;transition:.15s;
+  }
+  input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(22,199,154,.16)}
+  label.field{display:block;margin-bottom:14px}
+  label.field>span{display:block;color:var(--muted);font-size:.85rem;margin-bottom:6px;font-weight:600}
+
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{
+    padding:9px 15px;border-radius:999px;border:1px solid var(--line);background:#0c141d;
+    cursor:pointer;font-weight:700;color:var(--muted);transition:.15s;user-select:none;
+  }
+  .chip.active{background:rgba(22,199,154,.16);border-color:var(--accent);color:var(--accent)}
+  .chip:hover{border-color:var(--accent)}
+
+  .mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mode-card{
+    padding:14px;border-radius:14px;border:1.5px solid var(--line);background:#0c141d;cursor:pointer;transition:.15s;
+  }
+  .mode-card .t{font-weight:800;margin-bottom:4px}
+  .mode-card .d{font-size:.82rem;color:var(--muted);line-height:1.4}
+  .mode-card.active{border-color:var(--accent);background:rgba(22,199,154,.10)}
+
+  .stepper{display:inline-flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .stepper button{border:none;border-radius:0;background:var(--panel-2);width:46px;font-size:1.2rem;padding:9px 0}
+  .stepper .val{min-width:54px;text-align:center;font-weight:800;font-size:1.1rem}
+
+  /* Lists */
+  .pill-list{display:flex;flex-direction:column;gap:8px;margin-top:6px;max-height:340px;overflow:auto}
+  .pill{
+    display:flex;align-items:center;gap:10px;background:#0c141d;border:1px solid var(--line);
+    border-radius:12px;padding:9px 12px;
+  }
+  .pill .name{flex:1;font-weight:600}
+  .pill .num{width:26px;height:26px;border-radius:8px;background:var(--panel-2);display:grid;place-items:center;font-size:.8rem;color:var(--muted);font-weight:800}
+  .pill.selectable{cursor:pointer;user-select:none}
+  .pill.selectable.sel{border-color:var(--accent);background:rgba(22,199,154,.12)}
+  .pill .x{color:var(--muted);background:transparent;border:none;font-size:1.1rem;padding:2px 6px}
+  .pill .x:hover{color:var(--danger)}
+  .muted{color:var(--muted)}
+  .hint{font-size:.82rem;color:var(--muted);line-height:1.5}
+  .warnbox{background:rgba(255,177,78,.12);border:1px solid rgba(255,177,78,.4);color:var(--warn);padding:10px 12px;border-radius:12px;font-size:.85rem;margin-top:10px}
+
+  .team-pill{display:flex;align-items:center;gap:10px;background:#0c141d;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .team-pill .vs{color:var(--muted);font-weight:800;font-size:.8rem}
+  .team-pill .p{font-weight:700}
+
+  /* Play layout */
+  .play-grid{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:900px){.play-grid{grid-template-columns:1fr 360px;align-items:start}}
+  .round-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .round-head .badge{background:var(--accent);color:#04221a;font-weight:800;border-radius:999px;padding:5px 14px}
+  .round-head .spacer{flex:1}
+
+  .courts{display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:560px){.courts{grid-template-columns:1fr 1fr}}
+  @media(min-width:900px){.courts{grid-template-columns:1fr}}
+  @media(min-width:1100px){.courts{grid-template-columns:1fr 1fr}}
+
+  .match{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow)}
+  .match .court{font-size:.78rem;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;justify-content:space-between}
+  .match .court .target{color:var(--accent)}
+  .side{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;border:1px solid transparent}
+  .side .names{flex:1;font-weight:700;line-height:1.25}
+  .side .sub{font-size:.75rem;color:var(--muted);font-weight:600}
+  .side.win{background:rgba(22,199,154,.12);border-color:rgba(22,199,154,.45)}
+  .side.win .names{color:var(--accent)}
+  .side .crown{font-size:.95rem;margin-left:6px}
+  .vs-line{text-align:center;color:var(--muted);font-size:.72rem;font-weight:800;margin:4px 0;letter-spacing:.1em}
+  .byes{margin-top:10px;font-size:.82rem;color:var(--muted)}
+  .byes b{color:var(--txt)}
+
+  /* score stepper */
+  .score-ctrl{display:flex;align-items:center;gap:6px;flex:none}
+  .score-ctrl .stp{width:42px;height:48px;font-size:1.4rem;line-height:1;padding:0;background:var(--panel-2);border:1px solid var(--line);border-radius:11px;display:grid;place-items:center;color:var(--txt)}
+  .score-ctrl .stp:hover{border-color:var(--accent);color:var(--accent)}
+  .score-ctrl .stp:active{background:var(--accent);color:#04221a}
+  .score-ctrl input{width:62px;text-align:center;font-size:1.5rem;font-weight:800;padding:9px 2px}
+  /* hide native number spinners */
+  .score-ctrl input::-webkit-outer-spin-button,.score-ctrl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .score-ctrl input{-moz-appearance:textfield}
+  .match-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;min-height:22px}
+  .mstatus{font-size:.82rem;color:var(--accent);font-weight:700}
+  .mstatus.tie{color:var(--warn)}
+  .clr{background:transparent;border:none;color:var(--muted);font-size:.78rem;padding:2px 6px;cursor:pointer}
+  .clr:hover{color:var(--danger)}
+
+  /* finish / podium */
+  .finish h2{margin-top:6px}
+  .podium{display:flex;justify-content:center;align-items:flex-end;gap:14px;margin:14px 0 6px;flex-wrap:wrap}
+  .pod{background:#0c141d;border:1px solid var(--line);border-radius:16px;padding:16px 20px;text-align:center;min-width:130px}
+  .pod .medal{font-size:2.2rem;line-height:1}
+  .pod .pname{font-weight:800;margin-top:8px;font-size:1.05rem}
+  .pod .ppts{color:var(--accent);font-weight:700;font-size:.88rem;margin-top:3px}
+  .pod0{order:2;transform:translateY(-12px);border-color:var(--gold);box-shadow:0 0 0 1px rgba(255,214,107,.45),0 12px 26px rgba(0,0,0,.35)}
+  .pod1{order:1}
+  .pod2{order:3}
+  @media(max-width:520px){.pod0{transform:none}.podium{gap:10px}.pod{min-width:46%;padding:12px}}
+
+  details.past{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px}
+  details.past summary{cursor:pointer;font-weight:700;padding:8px 0;color:var(--muted)}
+  details.past[open] summary{color:var(--txt)}
+  .past-match{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:.9rem}
+  .past-match .s{font-weight:800}
+  .past-match .w{color:var(--accent)}
+
+  /* Standings */
+  .stand{position:sticky;top:14px}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th,td{padding:9px 8px;text-align:center}
+  th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--line)}
+  td{border-bottom:1px solid var(--line)}
+  td.name{text-align:left;font-weight:700}
+  tr.lead td{background:rgba(255,214,107,.07)}
+  .rank{width:24px;height:24px;border-radius:7px;background:var(--panel-2);display:inline-grid;place-items:center;font-weight:800;font-size:.78rem}
+  tr:nth-child(1) .rank{background:var(--gold);color:#3a2c00}
+  tr:nth-child(2) .rank{background:#cbd5e1;color:#1f2937}
+  tr:nth-child(3) .rank{background:#e0a06a;color:#3a1f00}
+  .pf{font-weight:800;color:var(--accent)}
+
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+  .footer-note{margin-top:26px;text-align:center;color:var(--muted);font-size:.78rem;line-height:1.6}
+  .sticky-actions{position:sticky;bottom:0;padding-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo"><span class="ball">🎾</span> Mexicano Padel</div>
+    <div class="sub" id="topSub"></div>
+    <div class="spacer"></div>
+    <button id="newBtn" class="sm" style="display:none" onclick="newTournament()">↻ Новый турнир</button>
+  </div>
+
+  <div id="app"></div>
+
+  <div class="footer-note">
+    Данные сохраняются в этом браузере автоматически. Можно закрывать вкладку — турнир не потеряется.
+  </div>
+</div>
+
+<script>
+"use strict";
+const LS_KEY = "mexicano_padel_v1";
+
+function defaultState(){
+  return {stage:"setup", mode:"rotating", target:24, courts:2, scoring:"fixed", maxRounds:0,
+          players:[], teams:[], rounds:[], _pid:1, _tid:1, _mid:1};
+}
+let state = loadState() || defaultState();
+let sel = []; // выбранные игроки для создания команды (только UI)
+
+function loadState(){
+  try{
+    const p=JSON.parse(localStorage.getItem(LS_KEY));
+    if(!p)return null;
+    return Object.assign(defaultState(), p); // миграция: дополняем новыми полями (scoring, maxRounds…)
+  }catch(e){return null;}
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function uid(k){ return state["_"+k]++; }
+function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ---------- units / helpers ---------- */
+function isTeams(){return state.mode==="teams";}
+function getUnits(){return isTeams()? state.teams.map(t=>({id:t.id})) : state.players.map(p=>({id:p.id}));}
+function playerName(id){const p=state.players.find(p=>p.id===id);return p?p.name:"?";}
+function teamLabel(t){return playerName(t.p1)+" / "+playerName(t.p2);}
+function unitName(id){
+  if(isTeams()){const t=state.teams.find(t=>t.id===id);return t?teamLabel(t):"?";}
+  return playerName(id);
+}
+function pairedIds(){const s=new Set();state.teams.forEach(t=>{s.add(t.p1);s.add(t.p2);});return s;}
+function findMatch(mid){for(const r of state.rounds)for(const m of r.matches)if(m.id===mid)return m;return null;}
+function sideNamesInline(ids){return ids.map(id=>esc(unitName(id))).join(" + ");}
+function pluralRound(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"раундов";if(b>1&&b<5)return"раунда";if(b===1)return"раунд";return"раундов";}
+
+/* ---------- stats / standings ---------- */
+function computeStats(){
+  const stats={};
+  getUnits().forEach(u=>stats[u.id]={id:u.id,pf:0,pa:0,wins:0,losses:0,played:0,byes:0});
+  state.rounds.forEach(r=>{
+    r.matches.forEach(m=>{
+      if(!m.done)return;
+      const add=(ids,sf,sa)=>ids.forEach(id=>{const s=stats[id];if(!s)return;s.pf+=sf;s.pa+=sa;s.played++;if(sf>sa)s.wins++;else if(sf<sa)s.losses++;});
+      add(m.a,m.sa,m.sb); add(m.b,m.sb,m.sa);
+    });
+    (r.byes||[]).forEach(id=>{if(stats[id])stats[id].byes++;});
+  });
+  return stats;
+}
+function standings(){
+  const s=computeStats();
+  return Object.values(s).sort((x,y)=>
+    y.pf-x.pf || (y.pf-y.pa)-(x.pf-x.pa) || y.wins-x.wins || unitName(x.id).localeCompare(unitName(y.id),"ru"));
+}
+
+/* ---------- round generation ---------- */
+function generateRound(){
+  const groupSize = isTeams()?2:4;
+  const stats=computeStats();
+  let order = state.rounds.length===0 ? shuffle(getUnits().map(u=>u.id)) : standings().map(s=>s.id);
+  const total=order.length;
+  const capacity=Math.min(state.courts*groupSize, Math.floor(total/groupSize)*groupSize);
+  let byes=[];
+  if(capacity<total){
+    const sitN=total-capacity;
+    const cand=order.map((id,idx)=>({id,byes:stats[id]?stats[id].byes:0,idx}));
+    // меньше всего отдыхали — садятся; при равенстве отдыхает тот, кто ниже в таблице
+    cand.sort((a,b)=> a.byes-b.byes || b.idx-a.idx);
+    byes=cand.slice(0,sitN).map(c=>c.id);
+  }
+  const playing=order.filter(id=>!byes.includes(id));
+  const matches=[];
+  let court=1;
+  for(let i=0;i<playing.length;i+=groupSize){
+    const g=playing.slice(i,i+groupSize);
+    let a,b;
+    if(groupSize===2){a=[g[0]];b=[g[1]];}
+    else{a=[g[0],g[3]];b=[g[1],g[2]];}   // 1+4 vs 2+3
+    matches.push({id:uid("mid"),court,a,b,sa:null,sb:null,done:false});
+    court++;
+  }
+  state.rounds.push({n:state.rounds.length+1,matches,byes});
+  save();
+}
+function lastRound(){return state.rounds[state.rounds.length-1];}
+function roundComplete(r){return r&&r.matches.length>0&&r.matches.every(m=>m.done);}
+
+/* ---------- actions ---------- */
+function setMode(m){state.mode=m;sel=[];save();render();}
+function setTarget(v){state.target=v;save();render();}
+function setCourts(d){state.courts=Math.max(1,Math.min(12,state.courts+d));save();render();}
+function setScoring(s){state.scoring=s;save();render();}
+function setMaxRounds(n){state.maxRounds=n;save();render();}
+
+function addPlayer(){
+  const inp=document.getElementById("playerName");
+  const name=(inp.value||"").trim();
+  if(!name)return;
+  state.players.push({id:uid("pid"),name});
+  inp.value="";save();render();
+  setTimeout(()=>{const i=document.getElementById("playerName");if(i)i.focus();},0);
+}
+function removePlayer(id){
+  state.players=state.players.filter(p=>p.id!==id);
+  state.teams=state.teams.filter(t=>t.p1!==id&&t.p2!==id);
+  sel=sel.filter(x=>x!==id);
+  save();render();
+}
+function toggleSel(id){
+  if(sel.includes(id))sel=sel.filter(x=>x!==id);
+  else{sel.push(id);if(sel.length>2)sel.shift();}
+  render();
+}
+function createTeam(){
+  if(sel.length!==2)return;
+  state.teams.push({id:uid("tid"),p1:sel[0],p2:sel[1]});
+  sel=[];save();render();
+}
+function autoPair(){
+  const paired=pairedIds();
+  const free=shuffle(state.players.filter(p=>!paired.has(p.id)).map(p=>p.id));
+  for(let i=0;i+1<free.length;i+=2)state.teams.push({id:uid("tid"),p1:free[i],p2:free[i+1]});
+  sel=[];save();render();
+}
+function breakTeam(id){state.teams=state.teams.filter(t=>t.id!==id);save();render();}
+
+function startTournament(){
+  if(isTeams()){
+    if(state.teams.length<2){alert("Нужно минимум 2 команды.");return;}
+  }else{
+    if(state.players.length<4){alert("Нужно минимум 4 игрока.");return;}
+  }
+  state.stage="play";
+  if(state.rounds.length===0)generateRound();
+  save();render();
+}
+function nextRound(){
+  const r=lastRound();
+  if(!roundComplete(r))return;
+  if(state.maxRounds && r.n>=state.maxRounds){ finishTournament(); return; }
+  generateRound();
+  render();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function finishTournament(){
+  state.stage="finish";save();render();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function continuePlay(){
+  state.stage="play";
+  const r=lastRound();
+  if(r&&roundComplete(r))generateRound();
+  save();render();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function newTournament(){
+  if(!confirm("Начать новый турнир? Текущие результаты будут удалены."))return;
+  state=defaultState();sel=[];save();render();
+}
+
+function resultsText(){
+  const rows=standings();
+  let t="🎾 Mexicano Padel — итоги\n";
+  t+=(isTeams()?"Команды":"Классический")+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · до "+state.target+"\n\n";
+  rows.forEach((r,i)=>{ t+=(i+1)+". "+unitName(r.id)+" — "+r.pf+" очк. ("+r.wins+"П)\n"; });
+  return t;
+}
+function flashMsg(text){
+  const m=document.getElementById("shareMsg")||document.getElementById("copyMsg");
+  if(m){m.textContent=text;setTimeout(()=>{if(m)m.textContent="";},2500);}
+}
+function fallbackCopy(txt){
+  const ta=document.createElement("textarea");ta.value=txt;ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.focus();ta.select();
+  try{document.execCommand("copy");}catch(e){}
+  document.body.removeChild(ta);
+}
+function copyText(txt){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(()=>flashMsg("Скопировано ✓"),()=>{fallbackCopy(txt);flashMsg("Скопировано ✓");});
+  }else{ fallbackCopy(txt);flashMsg("Скопировано ✓"); }
+}
+async function shareResults(){
+  const txt=resultsText();
+  if(navigator.share){
+    try{ await navigator.share({title:"Mexicano Padel — итоги",text:txt}); return; }catch(e){ if(e&&e.name==="AbortError")return; }
+  }
+  copyText(txt);
+}
+
+function clampScore(v){
+  if(v==null||isNaN(v))return null;
+  v=Math.round(v); if(v<0)v=0;
+  if(state.scoring==="fixed"&&v>state.target)v=state.target;
+  return v;
+}
+function applyScore(mid,side,val,fromTyping){
+  const m=findMatch(mid);if(!m)return;
+  const v=clampScore(val);
+  if(state.scoring==="fixed"){
+    if(v==null){m.sa=null;m.sb=null;}
+    else if(side==="a"){m.sa=v;m.sb=state.target-v;}
+    else {m.sb=v;m.sa=state.target-v;}
+  } else {
+    if(side==="a")m.sa=v; else m.sb=v;
+  }
+  m.done=(m.sa!=null&&m.sb!=null);
+  save();
+  const setInp=(s)=>{const inp=document.getElementById("in-"+mid+"-"+s);if(inp)inp.value=(m["s"+s]==null?"":m["s"+s]);};
+  setInp(side==="a"?"b":"a");                    // партнёрское поле — всегда
+  if(!fromTyping || (val!=null && v!==val)) setInp(side); // активное — при степпере или если число ограничили
+  updateMatchVisual(mid); renderStandings(); updateNextBtn();
+}
+function typeScore(mid,side,raw){ applyScore(mid,side, raw===""?null:parseInt(raw,10), true); }
+function bumpScore(mid,side,delta){
+  const m=findMatch(mid);if(!m)return;
+  let cur=(side==="a"?m.sa:m.sb); if(cur==null)cur=0;
+  applyScore(mid,side, cur+delta, false);
+}
+function clearScore(mid){
+  const m=findMatch(mid);if(!m)return;
+  m.sa=null;m.sb=null;m.done=false;save();
+  ["a","b"].forEach(s=>{const inp=document.getElementById("in-"+mid+"-"+s);if(inp)inp.value="";});
+  updateMatchVisual(mid);renderStandings();updateNextBtn();
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  const fmt = (isTeams()?"Команды":"Классический") + " · до " + state.target + " · "
+      + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов"))
+      + (state.maxRounds?(" · "+state.maxRounds+" р."):"");
+  document.getElementById("topSub").textContent =
+    state.stage==="setup" ? "Настройка турнира" : state.stage==="finish" ? "Итоги турнира" : fmt;
+  document.getElementById("newBtn").style.display = state.stage==="setup" ? "none" : "";
+  if(state.stage==="setup"){
+    sel = sel.filter(id=>state.players.find(p=>p.id===id));
+    document.getElementById("app").innerHTML = setupHTML();
+  } else if(state.stage==="finish"){
+    renderFinish();
+  } else {
+    renderPlay();
+  }
+}
+
+/* ----- SETUP ----- */
+function setupHTML(){
+  const presets=[16,21,24,32];
+  const paired=pairedIds();
+  const freePlayers=state.players.filter(p=>!paired.has(p.id));
+
+  const teamsBlock = isTeams()? `
+    <div class="panel span2">
+      <h2>Команды</h2>
+      <h3>Свободные игроки ${freePlayers.length?`· выберите двоих`:""}</h3>
+      <div class="pill-list">
+        ${freePlayers.length? freePlayers.map(p=>`
+          <div class="pill selectable ${sel.includes(p.id)?"sel":""}" onclick="toggleSel(${p.id})">
+            <div class="num">${sel.includes(p.id)?(sel.indexOf(p.id)+1):"+"}</div>
+            <div class="name">${esc(p.name)}</div>
+          </div>`).join("")
+          : `<div class="hint">Все игроки разбиты по командам 👍</div>`}
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" onclick="createTeam()" ${sel.length!==2?"disabled":""}>＋ Создать команду</button>
+        <button class="ghost" onclick="autoPair()" ${freePlayers.length<2?"disabled":""}>🎲 Авто-разбивка</button>
+      </div>
+      <h3 style="margin-top:18px">Команды (${state.teams.length})</h3>
+      <div class="pill-list">
+        ${state.teams.length? state.teams.map((t,i)=>`
+          <div class="team-pill">
+            <div class="num">${i+1}</div>
+            <div class="p">${esc(playerName(t.p1))}</div>
+            <div class="vs">+</div>
+            <div class="p">${esc(playerName(t.p2))}</div>
+            <div style="flex:1"></div>
+            <button class="x" onclick="breakTeam(${t.id})" title="Разбить">✕</button>
+          </div>`).join("")
+          : `<div class="hint">Пока нет команд. Выберите двух игроков и нажмите «Создать команду».</div>`}
+      </div>
+    </div>` : "";
+
+  const warn = setupWarning();
+
+  return `
+  <div class="grid-setup">
+    <div class="panel">
+      <h2>Формат</h2>
+      <div class="mode-toggle">
+        <div class="mode-card ${state.mode==="rotating"?"active":""}" onclick="setMode('rotating')">
+          <div class="t">Меняющиеся партнёры</div>
+          <div class="d">Классический Mexicano. Каждый раунд новые пары по рейтингу (1+4 vs 2+3). Очки личные.</div>
+        </div>
+        <div class="mode-card ${state.mode==="teams"?"active":""}" onclick="setMode('teams')">
+          <div class="t">Фиксированные команды</div>
+          <div class="d">Пары не меняются. Соперники подбираются по таблице (1 vs 2, 3 vs 4).</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:20px">Играем до скольки очков (за игру)</h3>
+      <div class="chips">
+        ${presets.map(v=>`<div class="chip ${state.target===v?"active":""}" onclick="setTarget(${v})">${v}</div>`).join("")}
+        <input type="number" min="1" style="width:90px" value="${state.target}" onchange="setTarget(Math.max(1,parseInt(this.value)||1))" title="Своё значение">
+      </div>
+
+      <h3 style="margin-top:20px">Подсчёт очков</h3>
+      <div class="mode-toggle">
+        <div class="mode-card ${state.scoring==="fixed"?"active":""}" onclick="setScoring('fixed')">
+          <div class="t">Сумма очков (авто)</div>
+          <div class="d">Игра на ${state.target} очков. Вводите счёт одной команды — у второй посчитается сам.</div>
+        </div>
+        <div class="mode-card ${state.scoring==="free"?"active":""}" onclick="setScoring('free')">
+          <div class="t">Свободный счёт</div>
+          <div class="d">Вводите очки каждой команды вручную (без фиксированной суммы).</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:20px">Количество кортов</h3>
+      <div class="stepper">
+        <button onclick="setCourts(-1)">−</button>
+        <div class="val">${state.courts}</div>
+        <button onclick="setCourts(1)">＋</button>
+      </div>
+
+      <h3 style="margin-top:20px">Количество раундов</h3>
+      <div class="chips">
+        ${[4,6,8,10].map(v=>`<div class="chip ${state.maxRounds===v?"active":""}" onclick="setMaxRounds(${v})">${v}</div>`).join("")}
+        <div class="chip ${state.maxRounds===0?"active":""}" onclick="setMaxRounds(0)">∞ без лимита</div>
+      </div>
+      <div class="hint" style="margin-top:8px">После последнего раунда покажем пьедестал. «Без лимита» — играете, пока не нажмёте «Завершить».</div>
+    </div>
+
+    <div class="panel">
+      <h2>${isTeams()?"Игроки":"Игроки"} (${state.players.length})</h2>
+      <div class="row">
+        <input type="text" id="playerName" placeholder="Имя игрока" onkeydown="if(event.key==='Enter')addPlayer()">
+        <button class="primary" onclick="addPlayer()">＋ Добавить</button>
+      </div>
+      <div class="pill-list" style="margin-top:12px">
+        ${state.players.length? state.players.map((p,i)=>`
+          <div class="pill">
+            <div class="num">${i+1}</div>
+            <div class="name">${esc(p.name)}</div>
+            <button class="x" onclick="removePlayer(${p.id})" title="Удалить">✕</button>
+          </div>`).join("")
+          : `<div class="hint">Добавьте игроков — введите имя и нажмите Enter.</div>`}
+      </div>
+    </div>
+
+    ${teamsBlock}
+
+    <div class="span2">
+      ${warn}
+      <div class="row sticky-actions" style="justify-content:flex-end;margin-top:6px">
+        <button class="primary" style="padding:14px 26px;font-size:1.05rem" onclick="startTournament()">▶ Начать турнир</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function setupWarning(){
+  const msgs=[];
+  if(isTeams()){
+    const paired=pairedIds();
+    const free=state.players.filter(p=>!paired.has(p.id)).length;
+    if(free>0)msgs.push(`Не разбито по командам игроков: ${free}. Они не попадут в турнир.`);
+    if(state.teams.length>0 && state.teams.length<2)msgs.push("Для турнира нужно минимум 2 команды.");
+    const matchesNeed=Math.floor(state.teams.length/2);
+    if(state.teams.length>=2 && state.courts>matchesNeed)
+      msgs.push(`Кортов больше, чем нужно: одновременно играют ${matchesNeed} ${matchesNeed===1?"матч":"матча"}. Лишние корты простаивают.`);
+    if(state.teams.length%2!==0 && state.teams.length>=2)
+      msgs.push("Нечётное число команд — каждый раунд одна команда отдыхает (по очереди).");
+  }else{
+    if(state.players.length%4!==0 && state.players.length>=4)
+      msgs.push("Число игроков не кратно 4 — каждый раунд кто-то отдыхает (отдых распределяется по очереди).");
+    const maxMatches=Math.floor(state.players.length/4);
+    if(state.players.length>=4 && state.courts>maxMatches)
+      msgs.push(`Кортов больше, чем нужно: одновременно играют ${maxMatches} ${maxMatches===1?"матч":"матча"}.`);
+  }
+  return msgs.length? `<div class="warnbox">⚠ ${msgs.join("<br>")}</div>` : "";
+}
+
+/* ----- PLAY ----- */
+function renderPlay(){
+  const app=document.getElementById("app");
+  app.innerHTML=`
+    <div class="play-grid">
+      <div>
+        <div id="curRound"></div>
+        <div id="pastRounds"></div>
+      </div>
+      <div class="stand">
+        <div class="panel">
+          <div class="round-head" style="margin-bottom:10px">
+            <h2 style="margin:0">Таблица</h2>
+          </div>
+          <div id="standings"></div>
+        </div>
+      </div>
+    </div>`;
+  renderCurrentRound();
+  renderPastRounds();
+  renderStandings();
+}
+
+function renderCurrentRound(){
+  const r=lastRound();
+  const el=document.getElementById("curRound");
+  const byesHTML = (r.byes&&r.byes.length)
+    ? `<div class="byes">😴 Отдыхают: <b>${r.byes.map(id=>esc(unitName(id))).join(", ")}</b></div>` : "";
+  const atLimit = state.maxRounds && r.n>=state.maxRounds;
+  el.innerHTML=`
+    <div class="panel">
+      <div class="round-head">
+        <span class="badge">Раунд ${r.n}${state.maxRounds?(" / "+state.maxRounds):""}</span>
+        <span class="muted" id="roundProgress"></span>
+        <div class="spacer"></div>
+        <button class="ghost sm" onclick="finishTournament()" title="Подвести итоги">🏆 Завершить</button>
+        <button class="primary" id="nextBtn" onclick="nextRound()">${atLimit?"Итоги турнира →":"Следующий раунд →"}</button>
+      </div>
+      <div class="courts">
+        ${r.matches.map(m=>matchHTML(m)).join("")}
+      </div>
+      ${byesHTML}
+    </div>`;
+  updateNextBtn();
+  r.matches.forEach(m=>updateMatchVisual(m.id));
+}
+
+function matchHTML(m){
+  const names=(ids)=>ids.map(id=>esc(unitName(id))).join(isTeams()?" / ":"<br>");
+  const ctrl=(side,val)=>`
+    <div class="score-ctrl">
+      <button class="stp" onclick="bumpScore(${m.id},'${side}',-1)">−</button>
+      <input id="in-${m.id}-${side}" type="number" inputmode="numeric" min="0" ${state.scoring==="fixed"?`max="${state.target}"`:""}
+        placeholder="–" value="${val==null?"":val}" oninput="typeScore(${m.id},'${side}',this.value)">
+      <button class="stp" onclick="bumpScore(${m.id},'${side}',1)">＋</button>
+    </div>`;
+  return `
+  <div class="match" id="match-${m.id}">
+    <div class="court">
+      <span>🏷 Корт ${m.court}</span>
+      <span class="target">${state.scoring==="fixed"?("игра до "+state.target):"свободный счёт"}</span>
+    </div>
+    <div class="side" id="side-${m.id}-a">
+      <div class="names">${names(m.a)}</div>
+      ${ctrl("a",m.sa)}
+    </div>
+    <div class="vs-line">VS</div>
+    <div class="side" id="side-${m.id}-b">
+      <div class="names">${names(m.b)}</div>
+      ${ctrl("b",m.sb)}
+    </div>
+    <div class="match-foot">
+      <span class="mstatus" id="status-${m.id}"></span>
+      <button class="clr" onclick="clearScore(${m.id})" title="Сбросить счёт">сброс</button>
+    </div>
+  </div>`;
+}
+
+function updateMatchVisual(mid){
+  const m=findMatch(mid);if(!m)return;
+  const a=document.getElementById("side-"+mid+"-a");
+  const b=document.getElementById("side-"+mid+"-b");
+  if(a)a.classList.toggle("win", m.done&&m.sa>m.sb);
+  if(b)b.classList.toggle("win", m.done&&m.sb>m.sa);
+  const st=document.getElementById("status-"+mid);
+  if(st){
+    if(!m.done){st.textContent="";st.classList.remove("tie");}
+    else if(m.sa===m.sb){st.textContent="ничья "+m.sa+":"+m.sb;st.classList.add("tie");}
+    else {st.textContent="✓ "+sideNamesInline(m.sa>m.sb?m.a:m.b)+" — "+Math.max(m.sa,m.sb)+":"+Math.min(m.sa,m.sb);st.classList.remove("tie");}
+  }
+}
+
+function updateNextBtn(){
+  const r=lastRound();
+  const btn=document.getElementById("nextBtn");
+  const prog=document.getElementById("roundProgress");
+  if(!r)return;
+  const done=r.matches.filter(m=>m.done).length;
+  const all=roundComplete(r);
+  if(btn)btn.disabled=!all;
+  if(prog)prog.textContent=`${done}/${r.matches.length} матчей сыграно`;
+}
+
+function renderPastRounds(){
+  const el=document.getElementById("pastRounds");
+  const past=state.rounds.slice(0,-1).reverse();
+  if(!past.length){el.innerHTML="";return;}
+  el.innerHTML=past.map(r=>`
+    <details class="past">
+      <summary>Раунд ${r.n} — результаты</summary>
+      ${r.matches.map(m=>{
+        const aw=m.sa>m.sb,bw=m.sb>m.sa;
+        return `<div class="past-match">
+          <span class="${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
+          <span class="s">${m.sa==null?"–":m.sa} : ${m.sb==null?"–":m.sb}</span>
+          <span class="${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
+        </div>`;
+      }).join("")}
+      ${r.byes&&r.byes.length?`<div class="byes">😴 Отдыхали: ${r.byes.map(id=>esc(unitName(id))).join(", ")}</div>`:""}
+    </details>`).join("");
+}
+
+function renderStandings(){
+  const el=document.getElementById("standings");
+  if(!el)return;
+  const rows=standings();
+  if(!rows.length||rows.every(r=>r.played===0&&r.byes===0)){
+    el.innerHTML=`<div class="empty">Сыграйте первый матч — появится таблица.</div>`;
+    return;
+  }
+  const copyRow = state.stage==="play"
+    ? `<div class="row" style="margin-top:10px;align-items:center">
+         <button class="sm ghost" onclick="copyText(resultsText())">📋 Копировать таблицу</button>
+         <span id="copyMsg" class="hint"></span>
+       </div>` : "";
+  el.innerHTML=`
+    <table>
+      <thead><tr><th>#</th><th style="text-align:left">${isTeams()?"Команда":"Игрок"}</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="Набранные очки">Очки</th><th title="Разница очков">±</th></tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>`
+          <tr class="${i===0?"lead":""}">
+            <td><span class="rank">${i+1}</span></td>
+            <td class="name">${esc(unitName(r.id))}</td>
+            <td>${r.played}</td>
+            <td>${r.wins}</td>
+            <td class="pf">${r.pf}</td>
+            <td>${(r.pf-r.pa>0?"+":"")+(r.pf-r.pa)}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="hint" style="margin-top:10px">Рейтинг — по сумме набранных очков, далее по разнице.</div>
+    ${copyRow}`;
+}
+
+function renderFinish(){
+  const rows=standings();
+  const medals=["🥇","🥈","🥉"];
+  const top=rows.slice(0,3);
+  document.getElementById("app").innerHTML=`
+    <div class="panel finish">
+      <h2 style="text-align:center;font-size:1.45rem">🏆 Итоги турнира</h2>
+      <div class="muted" style="text-align:center;margin-bottom:6px">
+        ${isTeams()?"Команды":"Классический"} · ${state.rounds.length} ${pluralRound(state.rounds.length)} · до ${state.target}
+      </div>
+      <div class="podium">
+        ${top.map((r,i)=>`
+          <div class="pod pod${i}">
+            <div class="medal">${medals[i]}</div>
+            <div class="pname">${esc(unitName(r.id))}</div>
+            <div class="ppts">${r.pf} очк. · ${r.wins}П</div>
+          </div>`).join("")}
+      </div>
+      <div id="standings"></div>
+      <div class="row" style="justify-content:center;gap:10px;margin-top:20px;flex-wrap:wrap">
+        <button class="primary" onclick="shareResults()">📋 Поделиться результатами</button>
+        <button class="ghost" onclick="continuePlay()">＋ Доиграть ещё раунд</button>
+        <button class="danger" onclick="newTournament()">↻ Новый турнир</button>
+      </div>
+      <div id="shareMsg" class="hint" style="text-align:center;margin-top:10px;min-height:18px"></div>
+    </div>`;
+  renderStandings();
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+render();
+</script>
+</body>
+</html>
