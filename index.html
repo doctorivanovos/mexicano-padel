@@ -24,6 +24,7 @@
     font-size:16px;
   }
   *{box-sizing:border-box}
+  html{background:var(--bg)}
   html,body{margin:0;padding:0}
   body{
     background:radial-gradient(1200px 700px at 70% -10%, #1b3040 0%, var(--bg) 55%);
@@ -108,9 +109,7 @@
     border-radius:12px;padding:9px 12px;
   }
   .pill .name{flex:1;font-weight:600}
-  .pill .num{width:26px;height:26px;border-radius:8px;background:var(--panel-2);display:grid;place-items:center;font-size:.8rem;color:var(--muted);font-weight:800}
-  .pill.selectable{cursor:pointer;user-select:none}
-  .pill.selectable.sel{border-color:var(--accent);background:rgba(22,199,154,.12)}
+  .pill .num{width:26px;height:26px;border-radius:8px;background:var(--panel-2);display:grid;place-items:center;font-size:.8rem;color:var(--muted);font-weight:800;flex:none}
   .pill .x{color:var(--muted);background:transparent;border:none;font-size:1.1rem;padding:2px 6px}
   .pill .x:hover{color:var(--danger)}
   .muted{color:var(--muted)}
@@ -120,6 +119,23 @@
   .team-pill{display:flex;align-items:center;gap:10px;background:#0c141d;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
   .team-pill .vs{color:var(--muted);font-weight:800;font-size:.8rem}
   .team-pill .p{font-weight:700}
+
+  /* fast team / player entry */
+  .team-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .team-add input{flex:1;min-width:84px}
+  .amp{color:var(--muted);font-weight:800;flex:none}
+  .team-row{display:flex;align-items:center;gap:8px;background:#0c141d;border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+  .team-row input{flex:1;min-width:54px;background:#0a1119;border:1px solid transparent;font-weight:700;padding:7px 9px}
+  .team-row input:hover{border-color:var(--line)}
+  .team-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(22,199,154,.14)}
+  .nameedit{background:transparent;border:1px solid transparent;font-weight:600;flex:1;padding:7px 9px}
+  .nameedit:hover{border-color:var(--line)}
+  .nameedit:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(22,199,154,.14)}
+  .linkbtn{background:transparent;border:none;color:var(--accent);padding:8px 0;font-size:.85rem;cursor:pointer;font-weight:700}
+  .linkbtn:hover{text-decoration:underline;border:none}
+  .bulkbox{margin-top:8px}
+  .bulkbox textarea{width:100%;background:#0c141d;color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;resize:vertical;line-height:1.5}
+  .bulkbox textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(22,199,154,.14)}
 
   /* Play layout */
   .play-grid{display:grid;grid-template-columns:1fr;gap:18px}
@@ -224,7 +240,7 @@ function defaultState(){
           players:[], teams:[], rounds:[], cur:0, _pid:1, _tid:1, _mid:1};
 }
 let state = loadState() || defaultState();
-let sel = []; // выбранные игроки для создания команды (только UI)
+let bulkOpen = false; // открыт ли блок «вставить списком» (только UI)
 
 function loadState(){
   try{
@@ -359,7 +375,7 @@ function roundWaiting(r){
 }
 
 /* ---------- actions ---------- */
-function setFormat(mode,schedule){state.mode=mode;state.schedule=schedule;sel=[];save();render();}
+function setFormat(mode,schedule){state.mode=mode;state.schedule=schedule;save();render();}
 function setLegs(n){state.legs=n;save();render();}
 function setTarget(v){state.target=v;save();render();}
 function setCourts(d){state.courts=Math.max(1,Math.min(12,state.courts+d));save();render();}
@@ -377,26 +393,64 @@ function addPlayer(){
 function removePlayer(id){
   state.players=state.players.filter(p=>p.id!==id);
   state.teams=state.teams.filter(t=>t.p1!==id&&t.p2!==id);
-  sel=sel.filter(x=>x!==id);
   save();render();
 }
-function toggleSel(id){
-  if(sel.includes(id))sel=sel.filter(x=>x!==id);
-  else{sel.push(id);if(sel.length>2)sel.shift();}
-  render();
+function editPlayerName(id,val){const p=state.players.find(p=>p.id===id);if(p){p.name=val;save();}}
+
+/* --- команды: прямой ввод пары, инлайн-правка, список --- */
+function unpairedPlayers(){const paired=pairedIds();return state.players.filter(p=>!paired.has(p.id));}
+function addTeamDirect(){
+  const a=document.getElementById("tnA"), b=document.getElementById("tnB");
+  if(!a||!b)return;
+  const na=(a.value||"").trim(), nb=(b.value||"").trim();
+  if(!na){a.focus();return;}
+  if(!nb){b.focus();return;}
+  const p1=uid("pid"), p2=uid("pid");
+  state.players.push({id:p1,name:na},{id:p2,name:nb});
+  state.teams.push({id:uid("tid"),p1:p1,p2:p2});
+  save();render();
+  setTimeout(()=>{const x=document.getElementById("tnA");if(x)x.focus();},0);  // фокус назад — для быстрого ввода
 }
-function createTeam(){
-  if(sel.length!==2)return;
-  state.teams.push({id:uid("tid"),p1:sel[0],p2:sel[1]});
-  sel=[];save();render();
+function editTeamName(teamId,slot,val){
+  const t=state.teams.find(t=>t.id===teamId);if(!t)return;
+  const p=state.players.find(p=>p.id===t[slot]);
+  if(p){p.name=val;save();}                 // без render — фокус в поле сохраняется
+}
+function removeTeam(id){
+  const t=state.teams.find(t=>t.id===id);
+  if(t)state.players=state.players.filter(p=>p.id!==t.p1&&p.id!==t.p2);
+  state.teams=state.teams.filter(t=>t.id!==id);
+  save();render();
 }
 function autoPair(){
-  const paired=pairedIds();
-  const free=shuffle(state.players.filter(p=>!paired.has(p.id)).map(p=>p.id));
+  const free=shuffle(unpairedPlayers().map(p=>p.id));
   for(let i=0;i+1<free.length;i+=2)state.teams.push({id:uid("tid"),p1:free[i],p2:free[i+1]});
-  sel=[];save();render();
+  save();render();
 }
-function breakTeam(id){state.teams=state.teams.filter(t=>t.id!==id);save();render();}
+function clearUnpaired(){
+  const paired=pairedIds();
+  state.players=state.players.filter(p=>paired.has(p.id));
+  save();render();
+}
+function toggleBulk(){bulkOpen=!bulkOpen;render();}
+function addBulkNames(){
+  const ta=document.getElementById("bulkInput");if(!ta)return;
+  const names=ta.value.split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);
+  if(!names.length){bulkOpen=false;render();return;}
+  let leftover="";
+  if(isTeams()){
+    for(let i=0;i+1<names.length;i+=2){
+      const p1=uid("pid"),p2=uid("pid");
+      state.players.push({id:p1,name:names[i]},{id:p2,name:names[i+1]});
+      state.teams.push({id:uid("tid"),p1:p1,p2:p2});
+    }
+    if(names.length%2===1)leftover=names[names.length-1];  // нечётный остаток
+  }else{
+    names.forEach(n=>state.players.push({id:uid("pid"),name:n}));
+  }
+  bulkOpen=false;save();render();
+  if(leftover){const a=document.getElementById("tnA");if(a){a.value=leftover;a.focus();}}
+}
 
 function startTournament(){
   if(isTeams()){
@@ -439,7 +493,7 @@ function continuePlay(){
 }
 function newTournament(){
   if(!confirm("Начать новый турнир? Текущие результаты будут удалены."))return;
-  state=defaultState();sel=[];save();render();
+  state=defaultState();bulkOpen=false;save();render();
 }
 
 function resultsText(){
@@ -519,7 +573,6 @@ function render(){
     state.stage==="setup" ? "Настройка турнира" : state.stage==="finish" ? "Итоги турнира" : fmt;
   document.getElementById("newBtn").style.display = state.stage==="setup" ? "none" : "";
   if(state.stage==="setup"){
-    sel = sel.filter(id=>state.players.find(p=>p.id===id));
     document.getElementById("app").innerHTML = setupHTML();
   } else if(state.stage==="finish"){
     renderFinish();
@@ -531,40 +584,6 @@ function render(){
 /* ----- SETUP ----- */
 function setupHTML(){
   const presets=[16,21,24,32];
-  const paired=pairedIds();
-  const freePlayers=state.players.filter(p=>!paired.has(p.id));
-
-  const teamsBlock = isTeams()? `
-    <div class="panel span2">
-      <h2>Команды</h2>
-      <h3>Свободные игроки ${freePlayers.length?`· выберите двоих`:""}</h3>
-      <div class="pill-list">
-        ${freePlayers.length? freePlayers.map(p=>`
-          <div class="pill selectable ${sel.includes(p.id)?"sel":""}" onclick="toggleSel(${p.id})">
-            <div class="num">${sel.includes(p.id)?(sel.indexOf(p.id)+1):"+"}</div>
-            <div class="name">${esc(p.name)}</div>
-          </div>`).join("")
-          : `<div class="hint">Все игроки разбиты по командам 👍</div>`}
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button class="primary" onclick="createTeam()" ${sel.length!==2?"disabled":""}>＋ Создать команду</button>
-        <button class="ghost" onclick="autoPair()" ${freePlayers.length<2?"disabled":""}>🎲 Авто-разбивка</button>
-      </div>
-      <h3 style="margin-top:18px">Команды (${state.teams.length})</h3>
-      <div class="pill-list">
-        ${state.teams.length? state.teams.map((t,i)=>`
-          <div class="team-pill">
-            <div class="num">${i+1}</div>
-            <div class="p">${esc(playerName(t.p1))}</div>
-            <div class="vs">+</div>
-            <div class="p">${esc(playerName(t.p2))}</div>
-            <div style="flex:1"></div>
-            <button class="x" onclick="breakTeam(${t.id})" title="Разбить">✕</button>
-          </div>`).join("")
-          : `<div class="hint">Пока нет команд. Выберите двух игроков и нажмите «Создать команду».</div>`}
-      </div>
-    </div>` : "";
-
   const warn = setupWarning();
 
   return `
@@ -614,24 +633,7 @@ function setupHTML(){
       ${roundsSettingHTML()}
     </div>
 
-    <div class="panel">
-      <h2>${isTeams()?"Игроки":"Игроки"} (${state.players.length})</h2>
-      <div class="row">
-        <input type="text" id="playerName" placeholder="Имя игрока" onkeydown="if(event.key==='Enter')addPlayer()">
-        <button class="primary" onclick="addPlayer()">＋ Добавить</button>
-      </div>
-      <div class="pill-list" style="margin-top:12px">
-        ${state.players.length? state.players.map((p,i)=>`
-          <div class="pill">
-            <div class="num">${i+1}</div>
-            <div class="name">${esc(p.name)}</div>
-            <button class="x" onclick="removePlayer(${p.id})" title="Удалить">✕</button>
-          </div>`).join("")
-          : `<div class="hint">Добавьте игроков — введите имя и нажмите Enter.</div>`}
-      </div>
-    </div>
-
-    ${teamsBlock}
+    ${entryPanelHTML()}
 
     <div class="span2">
       ${warn}
@@ -672,12 +674,76 @@ function roundsSettingHTML(){
     </div>
     <div class="hint" style="margin-top:8px">После последнего раунда покажем пьедестал. «Без лимита» — играете, пока не нажмёте «Завершить».</div>`;
 }
+function entryPanelHTML(){
+  const bulkDisp = bulkOpen ? "" : "none";
+  if(isTeams()){
+    const teams=state.teams;
+    const unpaired=unpairedPlayers();
+    return `
+    <div class="panel">
+      <h2>Команды (${teams.length})</h2>
+      <div class="team-add">
+        <input type="text" id="tnA" placeholder="Игрок 1" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();var b=document.getElementById('tnB');b&&b.focus();}">
+        <span class="amp">+</span>
+        <input type="text" id="tnB" placeholder="Игрок 2" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addTeamDirect();}">
+        <button class="primary" onclick="addTeamDirect()">＋ Команда</button>
+      </div>
+      <button class="linkbtn" onclick="toggleBulk()">${bulkOpen?"× свернуть":"≡ вставить списком"}</button>
+      <div class="bulkbox" style="display:${bulkDisp}">
+        <textarea id="bulkInput" rows="4" placeholder="По одному имени в строке (или через запятую). Идущие подряд имена образуют пары: 1-й + 2-й, 3-й + 4-й…"></textarea>
+        <button class="primary sm" style="margin-top:8px" onclick="addBulkNames()">Добавить парами</button>
+      </div>
+      <div class="pill-list" style="margin-top:12px">
+        ${teams.length? teams.map((t,i)=>`
+          <div class="team-row">
+            <div class="num">${i+1}</div>
+            <input type="text" value="${esc(playerName(t.p1))}" oninput="editTeamName(${t.id},'p1',this.value)">
+            <span class="amp">/</span>
+            <input type="text" value="${esc(playerName(t.p2))}" oninput="editTeamName(${t.id},'p2',this.value)">
+            <button class="x" onclick="removeTeam(${t.id})" title="Удалить команду">✕</button>
+          </div>`).join("")
+          : `<div class="hint">Введите два имени и нажмите «Команда» (или Enter — между полями и для добавления). Имена потом можно править прямо в списке.</div>`}
+      </div>
+      ${unpaired.length? `
+        <div class="warnbox" style="margin-top:12px">
+          Без пары: <b>${unpaired.map(p=>esc(p.name)).join(", ")}</b>
+          <div class="row" style="margin-top:8px">
+            <button class="sm" onclick="autoPair()">🎲 Разбить по парам</button>
+            <button class="sm ghost" onclick="clearUnpaired()">Удалить</button>
+          </div>
+        </div>`:""}
+    </div>`;
+  }
+  // одиночные игроки (классический Mexicano)
+  return `
+    <div class="panel">
+      <h2>Игроки (${state.players.length})</h2>
+      <div class="row">
+        <input type="text" id="playerName" placeholder="Имя игрока" autocomplete="off" onkeydown="if(event.key==='Enter')addPlayer()">
+        <button class="primary" onclick="addPlayer()">＋ Добавить</button>
+      </div>
+      <button class="linkbtn" onclick="toggleBulk()">${bulkOpen?"× свернуть":"≡ вставить списком"}</button>
+      <div class="bulkbox" style="display:${bulkDisp}">
+        <textarea id="bulkInput" rows="4" placeholder="По одному имени в строке или через запятую."></textarea>
+        <button class="primary sm" style="margin-top:8px" onclick="addBulkNames()">Добавить всех</button>
+      </div>
+      <div class="pill-list" style="margin-top:12px">
+        ${state.players.length? state.players.map((p,i)=>`
+          <div class="pill">
+            <div class="num">${i+1}</div>
+            <input class="nameedit" type="text" value="${esc(p.name)}" oninput="editPlayerName(${p.id},this.value)">
+            <button class="x" onclick="removePlayer(${p.id})" title="Удалить">✕</button>
+          </div>`).join("")
+          : `<div class="hint">Добавьте игроков — введите имя и нажмите Enter.</div>`}
+      </div>
+    </div>`;
+}
+
 function setupWarning(){
   const msgs=[];
   if(isRR()){
-    const paired=pairedIds();
-    const free=state.players.filter(p=>!paired.has(p.id)).length;
-    if(free>0)msgs.push(`Не разбито по командам игроков: ${free}. Они не попадут в турнир.`);
     if(state.teams.length<2)msgs.push("Для круговой системы нужно минимум 2 команды.");
     const half=Math.floor(state.teams.length/2);
     if(state.teams.length>=2 && state.courts>half)
@@ -685,9 +751,6 @@ function setupWarning(){
     if(state.teams.length%2!==0 && state.teams.length>=2)
       msgs.push("Нечётное число команд — в каждом туре одна команда пропускает (по очереди).");
   }else if(isTeams()){
-    const paired=pairedIds();
-    const free=state.players.filter(p=>!paired.has(p.id)).length;
-    if(free>0)msgs.push(`Не разбито по командам игроков: ${free}. Они не попадут в турнир.`);
     if(state.teams.length>0 && state.teams.length<2)msgs.push("Для турнира нужно минимум 2 команды.");
     const matchesNeed=Math.floor(state.teams.length/2);
     if(state.teams.length>=2 && state.courts>matchesNeed)
