@@ -192,9 +192,15 @@
   details.past{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px}
   details.past summary{cursor:pointer;font-weight:700;padding:8px 0;color:var(--muted)}
   details.past[open] summary{color:var(--txt)}
-  .past-match{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:.9rem}
+  .past-match{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:.9rem}
   .past-match .s{font-weight:800}
-  .past-match .w{color:var(--accent)}
+  .past-match .w{color:var(--accent);font-weight:700}
+  .past-match .pa{flex:1;text-align:left}
+  .past-match .pb{flex:1;text-align:right}
+  .past-match .pedit{display:flex;align-items:center;gap:5px;flex:none}
+  .past-match .pedit input{width:46px;text-align:center;font-weight:800;font-size:.95rem;padding:5px 3px;border-radius:9px}
+  .past-match .pedit input::-webkit-outer-spin-button,.past-match .pedit input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .past-match .pedit input{-moz-appearance:textfield}
 
   /* Standings */
   .stand{position:sticky;top:14px}
@@ -890,19 +896,51 @@ function renderPastRounds(){
   // сыгранные раунды
   const past=state.rounds.map((r,i)=>({r,i})).filter(x=>x.i<state.cur).reverse().map(x=>x.r);
   past.forEach(r=>{
-    html += `<details class="past"><summary>Раунд ${r.n} — результаты</summary>`
+    const mx = state.scoring==="fixed"?` max="${state.target}"`:"";
+    html += `<details class="past"><summary>Раунд ${r.n} — результаты ✎</summary>`
+      + `<div class="hint" style="margin:2px 0 6px">Можно исправить счёт — таблица пересчитается.</div>`
       + r.matches.map(m=>{
-          const aw=m.sa>m.sb,bw=m.sb>m.sa;
-          return `<div class="past-match">
-            <span class="${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
-            <span class="s">${m.sa==null?"–":m.sa} : ${m.sb==null?"–":m.sb}</span>
-            <span class="${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
+          const aw=m.done&&m.sa>m.sb, bw=m.done&&m.sb>m.sa;
+          return `<div class="past-match" id="prow-${m.id}">
+            <span class="pa ${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
+            <span class="pedit">
+              <input id="pin-${m.id}-a" type="number" inputmode="numeric" min="0"${mx} placeholder="–" value="${m.sa==null?"":m.sa}" oninput="editPastScore(${m.id},'a',this.value)">
+              <span class="muted">:</span>
+              <input id="pin-${m.id}-b" type="number" inputmode="numeric" min="0"${mx} placeholder="–" value="${m.sb==null?"":m.sb}" oninput="editPastScore(${m.id},'b',this.value)">
+            </span>
+            <span class="pb ${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
           </div>`;
         }).join("")
       + (r.byes&&r.byes.length?`<div class="byes">😴 Отдыхали: ${r.byes.map(id=>esc(unitName(id))).join(", ")}</div>`:"")
       + `</details>`;
   });
   el.innerHTML=html;
+}
+
+function editPastScore(mid,side,raw){
+  const m=findMatch(mid);if(!m)return;
+  const val = raw===""?null:parseInt(raw,10);
+  const v=clampScore(val);
+  if(state.scoring==="fixed"){
+    if(v==null){m.sa=null;m.sb=null;}
+    else if(side==="a"){m.sa=v;m.sb=state.target-v;}
+    else {m.sb=v;m.sa=state.target-v;}
+  }else{
+    if(side==="a")m.sa=v; else m.sb=v;
+  }
+  m.done=(m.sa!=null&&m.sb!=null);
+  save();
+  const other=side==="a"?"b":"a";
+  const oin=document.getElementById("pin-"+mid+"-"+other);   // партнёрское поле (в режиме суммы пересчитано)
+  if(oin)oin.value=(m["s"+other]==null?"":m["s"+other]);
+  if(val!=null && v!==val){const ain=document.getElementById("pin-"+mid+"-"+side);if(ain)ain.value=v;} // если ограничили число
+  const row=document.getElementById("prow-"+mid);            // подсветка победителя
+  if(row){
+    const pa=row.querySelector(".pa"), pb=row.querySelector(".pb");
+    if(pa)pa.classList.toggle("w", m.done&&m.sa>m.sb);
+    if(pb)pb.classList.toggle("w", m.done&&m.sb>m.sa);
+  }
+  renderStandings();
 }
 
 function renderStandings(){
