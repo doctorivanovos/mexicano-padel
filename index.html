@@ -457,7 +457,7 @@ function koResults(){
   const runnerUp=finalM?koLoserId(finalM):null;
   const semis=[];
   const semiR=state.rounds[state.rounds.length-2];
-  if(semiR) semiR.matches.forEach(m=>{const l=koLoserId(m); if(l!=null)semis.push(l);});
+  if(semiR && semiR.ko) semiR.matches.forEach(m=>{const l=koLoserId(m); if(l!=null)semis.push(l);}); // только настоящий полуфинал (не групповой раунд)
   return {champion,runnerUp,semifinalists:semis};
 }
 
@@ -501,8 +501,17 @@ function groupStandings(gi){
   });});
   return Object.values(stats).sort((x,y)=> y.wins-x.wins || (y.pf-y.pa)-(x.pf-x.pa) || y.pf-x.pf || unitName(x.id).localeCompare(unitName(y.id),"ru"));
 }
-function groupStageComplete(){
-  return state.rounds.filter(r=>r.gr).every(r=>r.matches.every(m=>m.done));
+function teamGroup(id){ for(let gi=0;gi<state.groupTeams.length;gi++) if((state.groupTeams[gi]||[]).includes(id)) return gi; return -1; }
+function avoidSameGroupR1(r0){          // развести одногруппников в 1-м раунде плей-офф (для не-степени-двойки, напр. 3 группы × топ-2)
+  const same=(m)=>m.a.length&&m.b.length&&teamGroup(m.a[0])===teamGroup(m.b[0]);
+  for(let i=0;i<r0.length;i++){
+    if(!same(r0[i])) continue;
+    for(let j=0;j<r0.length;j++){
+      if(j===i||!r0[j].a.length||!r0[j].b.length) continue;
+      const bi=r0[i].b[0], bj=r0[j].b[0];
+      if(teamGroup(r0[i].a[0])!==teamGroup(bj) && teamGroup(r0[j].a[0])!==teamGroup(bi)){ r0[i].b=[bj]; r0[j].b=[bi]; break; }
+    }
+  }
 }
 function buildPlayoff(){
   const A=Math.max(1,state.advancePerGroup);
@@ -511,7 +520,9 @@ function buildPlayoff(){
   let seeds=[];
   for(let rank=0;rank<A;rank++) tops.forEach(t=>{ if(t[rank]!=null) seeds.push(t[rank]); });
   const startIdx=state.rounds.length;
-  buildBracketRounds(seeds).forEach(r=>state.rounds.push(r));   // дописываем сетку после групп
+  const poRounds=buildBracketRounds(seeds);
+  avoidSameGroupR1(poRounds[0].matches);                       // не сводить одногруппников сразу
+  poRounds.forEach(r=>state.rounds.push(r));                   // дописываем сетку после групп
   state.phase="playoff";
   state.cur=startIdx;
   save();
@@ -757,6 +768,10 @@ function clampScore(v){
   if(state.scoring==="fixed"&&v>state.target)v=state.target;
   return v;
 }
+function refreshLiveTables(){          // живое обновление сетки / групповых таблиц при вводе счёта
+  if(isKO() || (isGroups()&&state.phase==="playoff")){ const b=document.getElementById("bracket"); if(b)renderBracket(); }
+  else if(isGroups()){ const g=document.getElementById("groupTables"); if(g)renderGroupTables(); }
+}
 function applyScore(mid,side,val,fromTyping){
   const m=findMatch(mid);if(!m)return;
   const v=clampScore(val);
@@ -772,8 +787,7 @@ function applyScore(mid,side,val,fromTyping){
   const setInp=(s)=>{const inp=document.getElementById("in-"+mid+"-"+s);if(inp)inp.value=(m["s"+s]==null?"":m["s"+s]);};
   setInp(side==="a"?"b":"a");                    // партнёрское поле — всегда
   if(!fromTyping || (val!=null && v!==val)) setInp(side); // активное — при степпере или если число ограничили
-  updateMatchVisual(mid); renderStandings(); updateNextBtn();
-  if(isKO()){const bel=document.getElementById("bracket"); if(bel)renderBracket();}  // живая сетка
+  updateMatchVisual(mid); renderStandings(); updateNextBtn(); refreshLiveTables();
 }
 function typeScore(mid,side,raw){ applyScore(mid,side, raw===""?null:parseInt(raw,10), true); }
 function bumpScore(mid,side,delta){
@@ -785,15 +799,14 @@ function clearScore(mid){
   const m=findMatch(mid);if(!m)return;
   m.sa=null;m.sb=null;m.done=false;save();
   ["a","b"].forEach(s=>{const inp=document.getElementById("in-"+mid+"-"+s);if(inp)inp.value="";});
-  updateMatchVisual(mid);renderStandings();updateNextBtn();
-  if(isKO()){const bel=document.getElementById("bracket"); if(bel)renderBracket();}  // живая сетка
+  updateMatchVisual(mid);renderStandings();updateNextBtn();refreshLiveTables();
 }
 
 /* ---------- rendering ---------- */
 function render(){
   const fmtName = isGroups() ? ("Группы"+(state.phase==="playoff"?" · плей-офф":"")) : isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
   const totalR = (isRR()||isKO()) ? state.rounds.length : state.maxRounds;
-  const courtsSeg = (isKO()||isKing()) ? "" : (" · " + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов")));
+  const courtsSeg = (isKO()||isKing()||(isGroups()&&state.phase==="playoff")) ? "" : (" · " + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов")));
   const fmt = fmtName + " · до " + state.target + courtsSeg + (totalR?(" · "+totalR+" р."):"");
   document.getElementById("topSub").textContent =
     state.stage==="setup" ? "Настройка турнира" : state.stage==="finish" ? "Итоги турнира" : fmt;
@@ -896,7 +909,7 @@ function roundsSettingHTML(){
   if(isGroups()){
     const T=state.teams.length, G=state.groupCount, A=state.advancePerGroup;
     let info="Добавьте команды — раскидаем по группам автоматически.";
-    if(T>=G){ const per=Math.ceil(T/G), q=Math.min(A,per)*G; info=`${T} команд → ${G} ${G===2?"группы":"групп"} (~${per} в каждой), круговая внутри. В плей-офф выходят ${q} (по ${A} из группы).`; }
+    if(T>=G){ const per=Math.ceil(T/G), q=Math.min(A,per)*G; info=`${T} команд → ${G} ${G<=4?"группы":"групп"} (~${per} в каждой), круговая внутри. В плей-офф выходят ${q} (по ${A} из группы).`; }
     return `
       <h3 style="margin-top:20px">Групп</h3>
       <div class="chips">
@@ -1124,7 +1137,6 @@ function renderCurrentRound(){
           <span class="badge">Группы · Раунд ${r.n} / ${state.groupRoundCount}</span>
           <span class="muted" id="roundProgress"></span>
           <div class="spacer"></div>
-          <button class="ghost sm" onclick="finishTournament()" title="Подвести итоги">🏆 Завершить</button>
           <button class="primary" id="nextBtn" onclick="nextRound()">${atLast?"В плей-офф →":"Следующий раунд →"}</button>
         </div>
         <div class="courts">${r.matches.map(m=>matchHTML(m)).join("")}</div>
@@ -1356,7 +1368,7 @@ function editPastScore(mid,side,raw){
     if(pa)pa.classList.toggle("w", m.done&&m.sa>m.sb);
     if(pb)pb.classList.toggle("w", m.done&&m.sb>m.sa);
   }
-  renderStandings();
+  renderStandings(); refreshLiveTables();
 }
 
 function renderStandings(){
