@@ -261,6 +261,7 @@ const LS_KEY = "mexicano_padel_v1";
 
 function defaultState(){
   return {stage:"setup", mode:"rotating", schedule:"mexicano", legs:1, koSeed:"order", target:24, courts:2, scoring:"fixed", maxRounds:0,
+          groupCount:2, advancePerGroup:2, phase:"groups", groupTeams:[], groupRoundCount:0,
           players:[], teams:[], rounds:[], cur:0, kingQueue:[], _pid:1, _tid:1, _mid:1};
 }
 let state = loadState() || defaultState();
@@ -287,6 +288,8 @@ function isTeams(){return state.mode==="teams";}
 function isRR(){return state.schedule==="roundrobin";}
 function isKO(){return state.schedule==="knockout";}
 function isKing(){return state.schedule==="king";}
+function isGroups(){return state.schedule==="groups";}
+function groupLetter(gi){return String.fromCharCode(1040+gi);} // А, Б, В, Г…
 function getUnits(){return isTeams()? state.teams.map(t=>({id:t.id})) : state.players.map(p=>({id:p.id}));}
 function playerName(id){const p=state.players.find(p=>p.id===id);return p?p.name:"?";}
 function teamLabel(t){return playerName(t.p1)+" / "+playerName(t.p2);}
@@ -354,30 +357,27 @@ function generateRound(){
   save();
 }
 
-/* Полное круговое расписание (round robin): каждая команда играет с каждой.
-   Метод кругов даёт сбалансированные «туры»; делим их на раунды по числу кортов. */
-function generateFullSchedule(){
-  let units=shuffle(state.teams.map(t=>t.id));      // порядок раз перемешиваем для разнообразия
-  const arr=units.slice();
-  if(arr.length%2!==0) arr.push(null);              // нечётное число — фиктивная команда = пропуск
-  const n=arr.length, half=n/2;
-  const circleRounds=[];                            // каждый тур: список пар [a,b], команды не повторяются
+/* Круговой метод: список «туров», каждый — массив пар [a,b], команды в туре не повторяются. */
+function circleRounds(ids){
+  const arr=ids.slice();
+  if(arr.length%2!==0) arr.push(null);              // нечётное — фиктивная команда (пропуск)
+  const n=arr.length, half=n/2, rounds=[];
   let ring=arr.slice();
-  for(let r=0;r<n-1;r++){
+  for(let r=0;r<Math.max(1,n-1);r++){
     const pairs=[];
-    for(let i=0;i<half;i++){
-      const a=ring[i], b=ring[n-1-i];
-      if(a!=null&&b!=null) pairs.push([a,b]);
-    }
-    circleRounds.push(pairs);
+    for(let i=0;i<half;i++){ const a=ring[i], b=ring[n-1-i]; if(a!=null&&b!=null) pairs.push([a,b]); }
+    rounds.push(pairs);
     ring=[ring[0], ring[n-1], ...ring.slice(1,n-1)]; // фиксируем первый, остальных вращаем
   }
-  // legs кругов; во втором круге меняем хозяев местами (чисто косметика)
+  return rounds;
+}
+/* Полное круговое расписание (round robin): делим туры на раунды по числу кортов. */
+function generateFullSchedule(){
+  const cr=circleRounds(shuffle(state.teams.map(t=>t.id)));
   const legRounds=[];
   for(let leg=0;leg<Math.max(1,state.legs||1);leg++){
-    circleRounds.forEach(pairs=>legRounds.push(pairs.map(p=>leg%2?[p[1],p[0]]:[p[0],p[1]])));
+    cr.forEach(pairs=>legRounds.push(pairs.map(p=>leg%2?[p[1],p[0]]:[p[0],p[1]])));
   }
-  // делим каждый тур на раунды по числу кортов (внутри тура команды и так не пересекаются)
   state.rounds=[];
   const C=Math.max(1,state.courts);
   legRounds.forEach(pairs=>{
@@ -425,25 +425,28 @@ function koAdvanceCurrent(){           // продвинуть победите�
   const rd=state.cur, r=state.rounds[rd];
   r.matches.forEach((m,i)=>{ const w=koWinnerId(m); if(w!=null) advanceKO(rd,i,w); });
 }
-function buildBracket(){
-  const ids = state.koSeed==="random" ? shuffle(state.teams.map(t=>t.id)) : state.teams.map(t=>t.id);
+function buildBracketRounds(ids){   // массив KO-раундов из упорядоченного списка id (с посевом и проходами)
   const N=ids.length, S=nextPow2(N), order=seedOrder(S);
   const slot = order.map(pos=> pos<=N ? ids[pos-1] : null);   // null = пропуск (bye)
-  const numRounds=Math.round(Math.log2(S));
-  state.rounds=[];
+  const numRounds=Math.round(Math.log2(S)), rounds=[];
   let size=S;
   for(let rd=0; rd<numRounds; rd++){
     const matches=[];
     for(let i=0;i<size/2;i++) matches.push({id:uid("mid"),court:i+1,a:[],b:[],sa:null,sb:null,done:false,bye:false});
-    state.rounds.push({n:rd+1,matches,ko:true});
+    rounds.push({n:rd+1,matches,ko:true});
     size/=2;
   }
-  const r0=state.rounds[0].matches;                            // первый раунд из слотов
+  const r0=rounds[0].matches;                                  // первый раунд из слотов
   for(let i=0;i<r0.length;i++){
     r0[i].a = slot[2*i]!=null ? [slot[2*i]] : [];
     r0[i].b = slot[2*i+1]!=null ? [slot[2*i+1]] : [];
     if((r0[i].a.length>0) !== (r0[i].b.length>0)){ r0[i].bye=true; r0[i].done=true; }  // одна сторона пуста → проход
   }
+  return rounds;
+}
+function buildBracket(){
+  const ids = state.koSeed==="random" ? shuffle(state.teams.map(t=>t.id)) : state.teams.map(t=>t.id);
+  state.rounds=buildBracketRounds(ids);
   state.cur=0;
   save();
 }
@@ -456,6 +459,62 @@ function koResults(){
   const semiR=state.rounds[state.rounds.length-2];
   if(semiR) semiR.matches.forEach(m=>{const l=koLoserId(m); if(l!=null)semis.push(l);});
   return {champion,runnerUp,semifinalists:semis};
+}
+
+/* ---------- Группы + плей-офф ---------- */
+function splitGroups(){
+  const ids = state.koSeed==="random" ? shuffle(state.teams.map(t=>t.id)) : state.teams.map(t=>t.id);
+  const G=Math.max(2,state.groupCount), groups=Array.from({length:G},()=>[]);
+  ids.forEach((id,i)=>{ const row=Math.floor(i/G), col=i%G; groups[row%2===0?col:(G-1-col)].push(id); }); // «змейка» по посеву
+  return groups.filter(g=>g.length>0);
+}
+function generateGroupStage(){
+  const groups=splitGroups();
+  state.groupTeams=groups;
+  const groupCircles=groups.map(g=>circleRounds(g));            // туры внутри каждой группы
+  const maxR=Math.max(...groupCircles.map(c=>c.length));
+  const C=Math.max(1,state.courts);
+  state.rounds=[];
+  for(let k=0;k<maxR;k++){
+    let pairs=[];
+    const maxLen=Math.max(...groupCircles.map(c=>c[k]?c[k].length:0));
+    for(let j=0;j<maxLen;j++)                                   // чередуем группы: матч A, матч Б, …
+      groupCircles.forEach((circ,gi)=>{ if(circ[k]&&circ[k][j]) pairs.push({pair:circ[k][j],group:gi}); });
+    for(let i=0;i<pairs.length;i+=C){
+      const chunk=pairs.slice(i,i+C);
+      const matches=chunk.map((x,idx)=>({id:uid("mid"),court:idx+1,a:[x.pair[0]],b:[x.pair[1]],sa:null,sb:null,done:false,group:x.group}));
+      state.rounds.push({n:state.rounds.length+1,matches,byes:[],gr:true});
+    }
+  }
+  state.groupRoundCount=state.rounds.length;
+  state.phase="groups";
+  state.cur=0;
+  save();
+}
+function groupStandings(gi){
+  const stats={};
+  (state.groupTeams[gi]||[]).forEach(id=>stats[id]={id,pf:0,pa:0,wins:0,losses:0,played:0});
+  state.rounds.forEach(r=>{ if(!r.gr) return; r.matches.forEach(m=>{
+    if(m.group!==gi || !m.done) return;
+    const add=(ids,sf,sa)=>ids.forEach(id=>{const s=stats[id];if(!s)return;s.pf+=sf;s.pa+=sa;s.played++;if(sf>sa)s.wins++;else if(sf<sa)s.losses++;});
+    add(m.a,m.sa,m.sb); add(m.b,m.sb,m.sa);
+  });});
+  return Object.values(stats).sort((x,y)=> y.wins-x.wins || (y.pf-y.pa)-(x.pf-x.pa) || y.pf-x.pf || unitName(x.id).localeCompare(unitName(y.id),"ru"));
+}
+function groupStageComplete(){
+  return state.rounds.filter(r=>r.gr).every(r=>r.matches.every(m=>m.done));
+}
+function buildPlayoff(){
+  const A=Math.max(1,state.advancePerGroup);
+  const tops=state.groupTeams.map((g,gi)=>groupStandings(gi).slice(0,A).map(s=>s.id));
+  // посев по рангам: сперва все победители групп, затем все вторые… seedOrder сам разведёт крест-накрест (А1–Б2, Б1–А2)
+  let seeds=[];
+  for(let rank=0;rank<A;rank++) tops.forEach(t=>{ if(t[rank]!=null) seeds.push(t[rank]); });
+  const startIdx=state.rounds.length;
+  buildBracketRounds(seeds).forEach(r=>state.rounds.push(r));   // дописываем сетку после групп
+  state.phase="playoff";
+  state.cur=startIdx;
+  save();
 }
 
 /* ---------- King of the Court (Кинг): один корт, победители остаются, очередь ---------- */
@@ -493,6 +552,8 @@ function roundWaiting(r){
 function setFormat(mode,schedule){state.mode=mode;state.schedule=schedule;save();render();}
 function setLegs(n){state.legs=n;save();render();}
 function setKoSeed(s){state.koSeed=s;save();render();}
+function setGroupCount(n){state.groupCount=n;save();render();}
+function setAdvance(n){state.advancePerGroup=n;save();render();}
 function setTarget(v){state.target=v;save();render();}
 function setCourts(d){state.courts=Math.max(1,Math.min(12,state.courts+d));save();render();}
 function setScoring(s){state.scoring=s;save();render();}
@@ -569,7 +630,9 @@ function addBulkNames(){
 }
 
 function startTournament(){
-  if(isTeams()){
+  if(isGroups()){
+    if(state.teams.length<state.groupCount*2){alert("Нужно минимум "+(state.groupCount*2)+" команд (по 2 в каждую группу).");return;}
+  }else if(isTeams()){
     if(state.teams.length<2){alert("Нужно минимум 2 команды.");return;}
   }else{
     if(state.players.length<4){alert("Нужно минимум 4 игрока.");return;}
@@ -577,6 +640,7 @@ function startTournament(){
   state.stage="play";
   if(state.rounds.length===0){
     if(isKO()) buildBracket();
+    else if(isGroups()) generateGroupStage();
     else if(isRR()) generateFullSchedule();
     else if(isKing()) generateKingRound();
     else generateRound();
@@ -598,6 +662,18 @@ function nextRound(){
     generateNextKing(); render(); window.scrollTo({top:0,behavior:"smooth"});
     return;
   }
+  if(isGroups()){
+    if(state.phase==="playoff"){
+      if(!koRoundDecided(r)) return;
+      if(state.cur>=state.rounds.length-1){ finishTournament(); return; }   // финал → чемпион
+      koAdvanceCurrent(); state.cur++; save(); render(); window.scrollTo({top:0,behavior:"smooth"});
+      return;
+    }
+    if(!roundComplete(r)) return;                                            // фаза групп
+    if(state.cur>=state.groupRoundCount-1){ buildPlayoff(); render(); window.scrollTo({top:0,behavior:"smooth"}); return; } // группы доиграны → в плей-офф
+    state.cur++; save(); render(); window.scrollTo({top:0,behavior:"smooth"});
+    return;
+  }
   if(!roundComplete(r))return;
   if(isRR()){
     if(state.cur>=state.rounds.length-1){ finishTournament(); return; }
@@ -617,7 +693,7 @@ function continuePlay(){
   state.stage="play";
   if(isKing()){
     if(kingDecided(curRound())) generateNextKing();   // доиграть ещё раунд
-  }else if(!isRR()&&!isKO()){
+  }else if(!isRR()&&!isKO()&&!isGroups()){
     const r=curRound();
     if(r&&roundComplete(r))generateRound();
   }
@@ -630,15 +706,16 @@ function newTournament(){
 }
 function newTournamentSameRoster(){            // новый турнир, те же игроки/команды и настройки
   state.rounds=[]; state.cur=0; state.kingQueue=[];
+  state.phase="groups"; state.groupTeams=[]; state.groupRoundCount=0;
   state.stage="setup"; bulkOpen=false;
   save(); render();
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
 function resultsText(){
-  if(isKO()){
+  if(isKO() || (isGroups() && state.phase==="playoff")){
     const res=koResults();
-    let t="🎾 Mexicano Padel — сетка на вылет\n\n";
+    let t="🎾 Mexicano Padel — "+(isGroups()?"группы + плей-офф":"сетка на вылет")+"\n\n";
     t+="🏆 Чемпион: "+(res.champion!=null?unitName(res.champion):"—")+"\n";
     if(res.runnerUp!=null) t+="🥈 Финалист: "+unitName(res.runnerUp)+"\n";
     if(res.semifinalists.length) t+="🥉 Полуфинал: "+res.semifinalists.map(unitName).join(", ")+"\n";
@@ -714,7 +791,7 @@ function clearScore(mid){
 
 /* ---------- rendering ---------- */
 function render(){
-  const fmtName = isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
+  const fmtName = isGroups() ? ("Группы"+(state.phase==="playoff"?" · плей-офф":"")) : isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
   const totalR = (isRR()||isKO()) ? state.rounds.length : state.maxRounds;
   const courtsSeg = (isKO()||isKing()) ? "" : (" · " + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов")));
   const fmt = fmtName + " · до " + state.target + courtsSeg + (totalR?(" · "+totalR+" р."):"");
@@ -744,7 +821,7 @@ function setupHTML(){
           <div class="t">Mexicano · меняющиеся партнёры</div>
           <div class="d">Классический Mexicano. Каждый раунд новые пары по рейтингу (1+4 vs 2+3). Очки личные.</div>
         </div>
-        <div class="mode-card ${state.mode==="teams"&&!isRR()&&!isKO()?"active":""}" onclick="setFormat('teams','mexicano')">
+        <div class="mode-card ${state.mode==="teams"&&!isRR()&&!isKO()&&!isGroups()?"active":""}" onclick="setFormat('teams','mexicano')">
           <div class="t">Mexicano · фиксированные команды</div>
           <div class="d">Пары не меняются. Соперники подбираются по таблице (1 vs 2, 3 vs 4).</div>
         </div>
@@ -759,6 +836,10 @@ function setupHTML(){
         <div class="mode-card ${isKing()?"active":""}" onclick="setFormat('rotating','king')">
           <div class="t">Кинг (King of the Court)</div>
           <div class="d">Один корт: победители остаются, проигравшие в очередь. Очки личные, у кого больше — Кинг.</div>
+        </div>
+        <div class="mode-card ${isGroups()?"active":""}" onclick="setFormat('teams','groups')">
+          <div class="t">Группы + плей-офф · команды</div>
+          <div class="d">Группы по круговой, затем лучшие выходят в сетку на вылет до чемпиона.</div>
         </div>
       </div>
 
@@ -812,6 +893,26 @@ function rrInfo(){
   return {teams:T, matches: T*(T-1)/2*L, rounds};
 }
 function roundsSettingHTML(){
+  if(isGroups()){
+    const T=state.teams.length, G=state.groupCount, A=state.advancePerGroup;
+    let info="Добавьте команды — раскидаем по группам автоматически.";
+    if(T>=G){ const per=Math.ceil(T/G), q=Math.min(A,per)*G; info=`${T} команд → ${G} ${G===2?"группы":"групп"} (~${per} в каждой), круговая внутри. В плей-офф выходят ${q} (по ${A} из группы).`; }
+    return `
+      <h3 style="margin-top:20px">Групп</h3>
+      <div class="chips">
+        ${[2,3,4].map(v=>`<div class="chip ${G===v?"active":""}" onclick="setGroupCount(${v})">${v}</div>`).join("")}
+      </div>
+      <h3 style="margin-top:16px">Выходят из группы</h3>
+      <div class="chips">
+        ${[1,2].map(v=>`<div class="chip ${A===v?"active":""}" onclick="setAdvance(${v})">топ-${v}</div>`).join("")}
+      </div>
+      <h3 style="margin-top:16px">Распределение по группам</h3>
+      <div class="chips">
+        <div class="chip ${state.koSeed==="order"?"active":""}" onclick="setKoSeed('order')">По порядку</div>
+        <div class="chip ${state.koSeed==="random"?"active":""}" onclick="setKoSeed('random')">🎲 Случайно</div>
+      </div>
+      <div class="hint" style="margin-top:8px">${info}</div>`;
+  }
   if(isKO()){
     const N=state.teams.length;
     let info="Добавьте минимум 2 команды — сетка построится сама.";
@@ -914,7 +1015,11 @@ function entryPanelHTML(){
 
 function setupWarning(){
   const msgs=[];
-  if(isKing()){
+  if(isGroups()){
+    const T=state.teams.length, G=state.groupCount, A=state.advancePerGroup;
+    if(T>0 && T<G*2) msgs.push(`Для ${G} групп нужно минимум ${G*2} команд (по 2 в группу).`);
+    if(T>=G*2 && A>=Math.ceil(T/G)) msgs.push("Выходят почти все — групповой этап мало что отсеет. Возьмите топ-1 или больше команд.");
+  }else if(isKing()){
     if(state.players.length>0 && state.players.length<4)msgs.push("Для Кинга нужно минимум 4 игрока.");
     if(state.players.length===4)msgs.push("С 4 игроками ротации почти нет — для Кинга лучше 5+ игроков.");
   }else if(isKO()){
@@ -949,10 +1054,21 @@ function setupWarning(){
 /* ----- PLAY ----- */
 function renderPlay(){
   const app=document.getElementById("app");
-  if(isKO()){
+  if(isKO() || (isGroups() && state.phase==="playoff")){
     app.innerHTML=`<div id="curRound"></div><div id="bracket"></div>`;
     renderCurrentRound();
     renderBracket();
+    return;
+  }
+  if(isGroups()){   // фаза групп: матчи + таблицы групп
+    app.innerHTML=`
+      <div class="play-grid">
+        <div><div id="curRound"></div><div id="pastRounds"></div></div>
+        <div class="stand"><div id="groupTables"></div></div>
+      </div>`;
+    renderCurrentRound();
+    renderPastRounds();
+    renderGroupTables();
     return;
   }
   app.innerHTML=`
@@ -978,11 +1094,12 @@ function renderPlay(){
 function renderCurrentRound(){
   const r=curRound();
   const el=document.getElementById("curRound");
-  if(isKO()){
+  if(isKO() || (isGroups() && state.phase==="playoff")){
     const real=r.matches.filter(m=>!m.bye);
     const byeTeams=r.matches.filter(m=>m.bye).map(m=>(m.a&&m.a.length?m.a[0]:(m.b&&m.b[0])));
     const byeHTML=byeTeams.length?`<div class="byes">✅ Проходят без игры: <b>${byeTeams.map(id=>esc(unitName(id))).join(", ")}</b></div>`:"";
     const atLast=state.cur>=state.rounds.length-1;
+    const tag=isGroups()?`<span class="muted" style="font-weight:700">Плей-офф · </span>`:"";
     el.innerHTML=`
       <div class="panel">
         <div class="round-head">
@@ -997,6 +1114,23 @@ function renderCurrentRound(){
       </div>`;
     updateNextBtn();
     real.forEach(m=>updateMatchVisual(m.id));
+    return;
+  }
+  if(isGroups()){   // фаза групп
+    const atLast=state.cur>=state.groupRoundCount-1;
+    el.innerHTML=`
+      <div class="panel">
+        <div class="round-head">
+          <span class="badge">Группы · Раунд ${r.n} / ${state.groupRoundCount}</span>
+          <span class="muted" id="roundProgress"></span>
+          <div class="spacer"></div>
+          <button class="ghost sm" onclick="finishTournament()" title="Подвести итоги">🏆 Завершить</button>
+          <button class="primary" id="nextBtn" onclick="nextRound()">${atLast?"В плей-офф →":"Следующий раунд →"}</button>
+        </div>
+        <div class="courts">${r.matches.map(m=>matchHTML(m)).join("")}</div>
+      </div>`;
+    updateNextBtn();
+    r.matches.forEach(m=>updateMatchVisual(m.id));
     return;
   }
   if(isKing()){
@@ -1055,7 +1189,7 @@ function matchHTML(m){
   return `
   <div class="match" id="match-${m.id}">
     <div class="court">
-      <span>🏷 ${(isKO()||isKing())?"Матч":"Корт"} ${m.court}</span>
+      <span>${m.group!=null ? ("👥 Группа "+groupLetter(m.group)) : ("🏷 "+((isKO()||isKing()||isGroups())?"Матч":"Корт")+" "+m.court)}</span>
       <span class="target">${state.scoring==="fixed"?("игра до "+state.target):"свободный счёт"}</span>
     </div>
     <div class="side" id="side-${m.id}-a">
@@ -1093,7 +1227,7 @@ function updateNextBtn(){
   const btn=document.getElementById("nextBtn");
   const prog=document.getElementById("roundProgress");
   if(!r)return;
-  if(isKO()){
+  if(isKO() || (isGroups() && state.phase==="playoff")){
     const real=r.matches.filter(m=>!m.bye);
     const done=real.filter(m=>m.done&&m.sa!=null&&m.sa!==m.sb).length;
     const ties=real.some(m=>m.done&&m.sa!=null&&m.sa===m.sb);
@@ -1153,12 +1287,28 @@ function renderPastRounds(){
   el.innerHTML=html;
 }
 
+function renderGroupTables(){
+  const el=document.getElementById("groupTables"); if(!el)return;
+  const A=state.advancePerGroup;
+  el.innerHTML=state.groupTeams.map((g,gi)=>{
+    const rows=groupStandings(gi);
+    return `<div class="panel" style="margin-bottom:14px">
+      <h2 style="margin-bottom:10px">Группа ${groupLetter(gi)}</h2>
+      <table>
+        <thead><tr><th>#</th><th style="text-align:left">Команда</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="Очки">Очки</th><th title="Разница">±</th></tr></thead>
+        <tbody>${rows.map((r,i)=>`<tr class="${i<A?"lead":""}"><td><span class="rank">${i+1}</span></td><td class="name">${esc(unitName(r.id))}</td><td>${r.played}</td><td>${r.wins}</td><td class="pf">${r.pf}</td><td>${(r.pf-r.pa>0?"+":"")+(r.pf-r.pa)}</td></tr>`).join("")}</tbody>
+      </table>
+      <div class="hint" style="margin-top:8px">Топ-${A} выходят в плей-офф (подсвечены).</div>
+    </div>`;
+  }).join("");
+}
 function renderBracket(){
   const el=document.getElementById("bracket"); if(!el) return;
   const res=koResults();
   const nm=(id)=> id!=null?esc(unitName(id)):"—";
   let cols="";
   state.rounds.forEach((r,rd)=>{
+    if(!r.ko) return;                              // только раунды плей-офф (в формате групп пропускаем групповые)
     const matches=r.matches.map(m=>{
       if(m.bye){
         const present=(m.a&&m.a.length)?m.a[0]:((m.b&&m.b.length)?m.b[0]:null);
@@ -1273,7 +1423,7 @@ function renderFinishKO(){
   renderBracket();
 }
 function renderFinish(){
-  if(isKO()){ return renderFinishKO(); }
+  if(isKO() || (isGroups() && state.phase==="playoff")){ return renderFinishKO(); }
   const rows=standings();
   const medals=isKing()?["👑","🥈","🥉"]:["🥇","🥈","🥉"];
   const top=rows.slice(0,3);
