@@ -628,6 +628,12 @@ function newTournament(){
   if(!confirm("Начать новый турнир? Текущие результаты будут удалены."))return;
   state=defaultState();bulkOpen=false;save();render();
 }
+function newTournamentSameRoster(){            // новый турнир, те же игроки/команды и настройки
+  state.rounds=[]; state.cur=0; state.kingQueue=[];
+  state.stage="setup"; bulkOpen=false;
+  save(); render();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
 
 function resultsText(){
   if(isKO()){
@@ -1259,6 +1265,7 @@ function renderFinishKO(){
       <div class="row" style="justify-content:center;gap:10px;margin-top:20px;flex-wrap:wrap">
         <button class="primary" onclick="shareResults()">📋 Поделиться результатами</button>
         ${koCanResume?`<button class="ghost" onclick="continuePlay()">↩ Вернуться к сетке</button>`:""}
+        <button class="ghost" onclick="newTournamentSameRoster()">🔁 Ещё раз (те же участники)</button>
         <button class="danger" onclick="newTournament()">↻ Новый турнир</button>
       </div>
       <div id="shareMsg" class="hint" style="text-align:center;margin-top:10px;min-height:18px"></div>
@@ -1293,6 +1300,7 @@ function renderFinish(){
       <div class="row" style="justify-content:center;gap:10px;margin-top:20px;flex-wrap:wrap">
         <button class="primary" onclick="shareResults()">📋 Поделиться результатами</button>
         ${resumeBtn}
+        <button class="ghost" onclick="newTournamentSameRoster()">🔁 Ещё раз (те же участники)</button>
         <button class="danger" onclick="newTournament()">↻ Новый турнир</button>
       </div>
       <div id="shareMsg" class="hint" style="text-align:center;margin-top:10px;min-height:18px"></div>
