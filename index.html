@@ -289,6 +289,7 @@ function isRR(){return state.schedule==="roundrobin";}
 function isKO(){return state.schedule==="knockout";}
 function isKing(){return state.schedule==="king";}
 function isGroups(){return state.schedule==="groups";}
+function isAmericano(){return state.schedule==="americano";}
 function groupLetter(gi){return String.fromCharCode(1040+gi);} // А, Б, В, Г…
 function getUnits(){return isTeams()? state.teams.map(t=>({id:t.id})) : state.players.map(p=>({id:p.id}));}
 function playerName(id){const p=state.players.find(p=>p.id===id);return p?p.name:"?";}
@@ -386,6 +387,21 @@ function generateFullSchedule(){
       const matches=chunk.map((p,idx)=>({id:uid("mid"),court:idx+1,a:[p[0]],b:[p[1]],sa:null,sb:null,done:false}));
       state.rounds.push({n:state.rounds.length+1,matches,byes:[],rr:true});
     }
+  });
+  state.cur=0;
+  save();
+}
+
+/* Americano: круговой метод даёт партнёрства (каждый с каждым ровно раз), внутри тура пары играют друг против друга. */
+function generateAmericano(){
+  const cr=circleRounds(state.players.map(p=>p.id));   // N-1 туров партнёрств (1-факторизация)
+  state.rounds=[];
+  cr.forEach(pairs=>{
+    const matches=[];
+    for(let i=0;i+1<pairs.length;i+=2)
+      matches.push({id:uid("mid"),court:matches.length+1,a:pairs[i],b:pairs[i+1],sa:null,sb:null,done:false});
+    const bye=(pairs.length%2===1)?pairs[pairs.length-1]:[];  // нечётная пара отдыхает весь тур
+    state.rounds.push({n:state.rounds.length+1,matches,byes:bye,amer:true});
   });
   state.cur=0;
   save();
@@ -653,6 +669,7 @@ function startTournament(){
     if(isKO()) buildBracket();
     else if(isGroups()) generateGroupStage();
     else if(isRR()) generateFullSchedule();
+    else if(isAmericano()) generateAmericano();
     else if(isKing()) generateKingRound();
     else generateRound();
   }
@@ -686,7 +703,7 @@ function nextRound(){
     return;
   }
   if(!roundComplete(r))return;
-  if(isRR()){
+  if(isRR()||isAmericano()){
     if(state.cur>=state.rounds.length-1){ finishTournament(); return; }
     state.cur++; save(); render(); window.scrollTo({top:0,behavior:"smooth"});
     return;
@@ -734,7 +751,7 @@ function resultsText(){
   }
   const rows=standings();
   let t="🎾 Mexicano Padel — итоги\n";
-  const fname=isKing()?"Кинг":isRR()?"Round robin":(isTeams()?"Команды":"Классический");
+  const fname=isKing()?"Кинг":isAmericano()?"Americano":isRR()?"Round robin":(isTeams()?"Команды":"Классический");
   t+=fname+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · до "+state.target+"\n\n";
   rows.forEach((r,i)=>{ t+=((isKing()&&i===0)?"👑 ":(i+1)+". ")+unitName(r.id)+" — "+(isRR()?(r.wins+"П, "+r.pf+" очк."):(r.pf+" очк. ("+r.wins+"П)"))+"\n"; });
   return t;
@@ -804,8 +821,8 @@ function clearScore(mid){
 
 /* ---------- rendering ---------- */
 function render(){
-  const fmtName = isGroups() ? ("Группы"+(state.phase==="playoff"?" · плей-офф":"")) : isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
-  const totalR = (isRR()||isKO()) ? state.rounds.length : state.maxRounds;
+  const fmtName = isGroups() ? ("Группы"+(state.phase==="playoff"?" · плей-офф":"")) : isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isAmericano() ? "Americano" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
+  const totalR = (isRR()||isKO()||isAmericano()) ? state.rounds.length : state.maxRounds;
   const courtsSeg = (isKO()||isKing()||(isGroups()&&state.phase==="playoff")) ? "" : (" · " + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов")));
   const fmt = fmtName + " · до " + state.target + courtsSeg + (totalR?(" · "+totalR+" р."):"");
   document.getElementById("topSub").textContent =
@@ -830,9 +847,13 @@ function setupHTML(){
     <div class="panel">
       <h2>Формат</h2>
       <div class="fmt-cards">
-        <div class="mode-card ${state.mode==="rotating"&&!isRR()&&!isKO()&&!isKing()?"active":""}" onclick="setFormat('rotating','mexicano')">
+        <div class="mode-card ${state.mode==="rotating"&&!isRR()&&!isKO()&&!isKing()&&!isAmericano()?"active":""}" onclick="setFormat('rotating','mexicano')">
           <div class="t">Mexicano · меняющиеся партнёры</div>
           <div class="d">Классический Mexicano. Каждый раунд новые пары по рейтингу (1+4 vs 2+3). Очки личные.</div>
+        </div>
+        <div class="mode-card ${isAmericano()?"active":""}" onclick="setFormat('rotating','americano')">
+          <div class="t">Americano · все со всеми в паре</div>
+          <div class="d">Каждый сыграет в паре с каждым (social-вариант). Расписание фиксировано, очки личные.</div>
         </div>
         <div class="mode-card ${state.mode==="teams"&&!isRR()&&!isKO()&&!isGroups()?"active":""}" onclick="setFormat('teams','mexicano')">
           <div class="t">Mexicano · фиксированные команды</div>
@@ -906,6 +927,13 @@ function rrInfo(){
   return {teams:T, matches: T*(T-1)/2*L, rounds};
 }
 function roundsSettingHTML(){
+  if(isAmericano()){
+    const N=state.players.length;
+    let info="Добавьте игроков — ровнее всего на 4, 8, 12, 16.";
+    if(N>=4){ const rounds=(N%2===0)?N-1:N, perRound=Math.floor(N/4);
+      info=`${N} игроков → ${rounds} ${pluralRound(rounds)}, каждый сыграет в паре с каждым. По ${perRound} ${pluralMatch(perRound)} в раунде${N%4!==0?", остальные отдыхают по очереди":""}.`; }
+    return `<div class="hint" style="margin-top:20px">${info}</div>`;
+  }
   if(isGroups()){
     const T=state.teams.length, G=state.groupCount, A=state.advancePerGroup;
     let info="Добавьте команды — раскидаем по группам автоматически.";
@@ -1028,7 +1056,14 @@ function entryPanelHTML(){
 
 function setupWarning(){
   const msgs=[];
-  if(isGroups()){
+  if(isAmericano()){
+    const N=state.players.length;
+    if(N>0 && N<4) msgs.push("Для Americano нужно минимум 4 игрока.");
+    if(N>=4 && N%4!==0) msgs.push("Число игроков не кратно 4 — в каждом раунде пара отдыхает (по очереди). Ровнее всего на 4, 8, 12, 16.");
+    const perRound=Math.floor(N/4);
+    if(N>=4 && state.courts>perRound) msgs.push(`Кортов больше, чем матчей в раунде (${perRound}).`);
+    if(N>=8 && perRound>state.courts) msgs.push(`Матчей в раунде (${perRound}) больше, чем кортов (${state.courts}) — играйте волнами.`);
+  }else if(isGroups()){
     const T=state.teams.length, G=state.groupCount, A=state.advancePerGroup;
     if(T>0 && T<G*2) msgs.push(`Для ${G} групп нужно минимум ${G*2} команд (по 2 в группу).`);
     if(T>=G*2 && A>=Math.ceil(T/G)) msgs.push("Выходят почти все — групповой этап мало что отсеет. Возьмите топ-1 или больше команд.");
@@ -1169,8 +1204,8 @@ function renderCurrentRound(){
   const wait=roundWaiting(r);
   const waitHTML = wait.length
     ? `<div class="byes">${isRR()?"⏳ Ожидают своей очереди":"😴 Отдыхают"}: <b>${wait.map(id=>esc(unitName(id))).join(", ")}</b></div>` : "";
-  const total = isRR()? state.rounds.length : state.maxRounds;
-  const atLast = isRR()? (state.cur>=state.rounds.length-1) : (state.maxRounds && r.n>=state.maxRounds);
+  const total = (isRR()||isAmericano())? state.rounds.length : state.maxRounds;
+  const atLast = (isRR()||isAmericano())? (state.cur>=state.rounds.length-1) : (state.maxRounds && r.n>=state.maxRounds);
   el.innerHTML=`
     <div class="panel">
       <div class="round-head">
@@ -1263,14 +1298,14 @@ function updateNextBtn(){
 function renderPastRounds(){
   const el=document.getElementById("pastRounds");
   let html="";
-  // предстоящие туры — только round robin (расписание известно заранее)
-  if(isRR()){
+  // предстоящие туры — для предген-форматов (round robin, americano)
+  if(isRR()||isAmericano()){
     const up=state.rounds.map((r,i)=>({r,i})).filter(x=>x.i>state.cur).map(x=>x.r);
     if(up.length){
       html += `<details class="past"><summary>📅 Дальше по расписанию (${up.length})</summary>`
         + up.map(r=>`<div class="past-match" style="border-top-style:dashed">
             <span class="muted" style="white-space:nowrap">Раунд ${r.n}</span>
-            <span class="s muted" style="font-weight:600;text-align:right">${r.matches.map(m=>esc(unitName(m.a[0]))+" – "+esc(unitName(m.b[0]))).join("&nbsp; · &nbsp;")}</span>
+            <span class="s muted" style="font-weight:600;text-align:right">${r.matches.map(m=>sideNamesInline(m.a)+" – "+sideNamesInline(m.b)).join("&nbsp; · &nbsp;")}</span>
           </div>`).join("")
         + `</details>`;
     }
