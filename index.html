@@ -248,10 +248,14 @@
     <button id="newBtn" class="sm" style="display:none" onclick="newTournament()">↻ Новый турнир</button>
   </div>
 
+  <div id="saveErr" style="display:none;background:rgba(255,107,107,.15);border:1px solid var(--danger);color:var(--danger);padding:10px 14px;border-radius:12px;margin-bottom:14px;font-weight:600">
+    ⚠ Не удалось сохранить — в браузере кончилось место. Скопируйте итоги (кнопка «Поделиться») и не закрывайте вкладку.
+  </div>
+
   <div id="app"></div>
 
   <div class="footer-note">
-    Данные сохраняются в этом браузере автоматически. Можно закрывать вкладку — турнир не потеряется.
+    Данные сохраняются на этом устройстве. Можно закрывать вкладку — турнир не потеряется (но при очистке данных браузера сотрётся).
   </div>
 </div>
 
@@ -279,7 +283,28 @@ function loadState(){
     return s;
   }catch(e){return null;}
 }
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function save(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); saveBanner(false); }
+  catch(e){ saveBanner(true); }            // переполнение/блокировка хранилища — не молчим
+}
+function saveBanner(show){
+  const b=document.getElementById("saveErr");
+  if(b) b.style.display=show?"block":"none";
+}
+const BK_KEY = "mexicano_padel_backup";    // резервная копия для undo-на-сброс
+function backupCurrent(){
+  try{ if(state.rounds && state.rounds.length) localStorage.setItem(BK_KEY, JSON.stringify(state)); }catch(e){}
+}
+function hasBackup(){ try{ return !!localStorage.getItem(BK_KEY); }catch(e){ return false; } }
+function restoreBackup(){
+  try{
+    const b=localStorage.getItem(BK_KEY); if(!b)return;
+    localStorage.setItem(LS_KEY, b);       // вернуть прошлый турнир как текущий
+    localStorage.removeItem(BK_KEY);
+    state=loadState()||defaultState(); bulkOpen=false; save(); render();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){}
+}
 function uid(k){ return state["_"+k]++; }
 function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
@@ -730,9 +755,12 @@ function continuePlay(){
 }
 function newTournament(){
   if(!confirm("Начать новый турнир? Текущие результаты будут удалены."))return;
+  backupCurrent();                              // можно будет вернуть на экране настройки
   state=defaultState();bulkOpen=false;save();render();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 function newTournamentSameRoster(){            // новый турнир, те же игроки/команды и настройки
+  backupCurrent();
   state.rounds=[]; state.cur=0; state.kingQueue=[];
   state.phase="groups"; state.groupTeams=[]; state.groupRoundCount=0;
   state.stage="setup"; bulkOpen=false;
@@ -843,6 +871,10 @@ function setupHTML(){
   const warn = setupWarning();
 
   return `
+  ${hasBackup()?`<div class="span2" style="margin-bottom:14px"><div class="warnbox" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span>↩ Прошлый турнир можно вернуть.</span>
+    <button class="sm" onclick="restoreBackup()">Вернуть прошлый турнир</button>
+  </div></div>`:""}
   <div class="grid-setup">
     <div class="panel">
       <h2>Формат</h2>
