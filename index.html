@@ -172,6 +172,20 @@
   .score-ctrl input::-webkit-outer-spin-button,.score-ctrl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .score-ctrl input{-moz-appearance:textfield}
   .match-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;min-height:22px}
+  /* теннисный ввод */
+  .tn-head{display:flex;align-items:center;gap:10px;margin:6px 0 10px}
+  .tn-head .tn-name{flex:1;font-weight:700;line-height:1.25}
+  .tn-head .tn-name.right{text-align:right}
+  .tn-head .tn-name.win{color:var(--accent)}
+  .tn-head .vs-mini{font-size:.72rem;font-weight:800;letter-spacing:.1em}
+  .tennis-entry{display:flex;flex-direction:column;gap:8px}
+  .tset{display:flex;align-items:center;justify-content:center;gap:8px}
+  .tset .tlabel{font-size:.75rem;color:var(--muted);font-weight:700;min-width:52px}
+  .tset input{width:52px;text-align:center;font-size:1.35rem;font-weight:800;padding:8px 2px}
+  .tset input::-webkit-outer-spin-button,.tset input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .tset input{-moz-appearance:textfield}
+  .past-match.tn-past{flex-direction:column;align-items:stretch;gap:6px}
+  .past-match.tn-past .pa{text-align:left}.past-match.tn-past .pb{text-align:left}
   .mstatus{font-size:.82rem;color:var(--accent);font-weight:700}
   .mstatus.tie{color:var(--warn)}
   .clr{background:transparent;border:none;color:var(--muted);font-size:.78rem;padding:2px 6px;cursor:pointer}
@@ -265,6 +279,7 @@ const LS_KEY = "mexicano_padel_v1";
 
 function defaultState(){
   return {stage:"setup", mode:"rotating", schedule:"mexicano", legs:1, koSeed:"order", target:24, courts:2, scoring:"fixed", maxRounds:0,
+          tennisSets:1,
           groupCount:2, advancePerGroup:2, phase:"groups", groupTeams:[], groupRoundCount:0,
           players:[], teams:[], rounds:[], cur:0, kingQueue:[], _pid:1, _tid:1, _mid:1};
 }
@@ -315,6 +330,8 @@ function isKO(){return state.schedule==="knockout";}
 function isKing(){return state.schedule==="king";}
 function isGroups(){return state.schedule==="groups";}
 function isAmericano(){return state.schedule==="americano";}
+function isTennis(){return state.scoring==="tennis";}
+function tennisNeed(){return Math.floor((state.tennisSets||1)/2)+1;} // сетов для победы: 1 (один сет) или 2 (из 3)
 function groupLetter(gi){return String.fromCharCode(1040+gi);} // А, Б, В, Г…
 function getUnits(){return isTeams()? state.teams.map(t=>({id:t.id})) : state.players.map(p=>({id:p.id}));}
 function playerName(id){const p=state.players.find(p=>p.id===id);return p?p.name:"?";}
@@ -336,8 +353,10 @@ function computeStats(){
   state.rounds.forEach(r=>{
     r.matches.forEach(m=>{
       if(!m.done)return;
-      const add=(ids,sf,sa)=>ids.forEach(id=>{const s=stats[id];if(!s)return;s.pf+=sf;s.pa+=sa;s.played++;if(sf>sa)s.wins++;else if(sf<sa)s.losses++;});
-      add(m.a,m.sa,m.sb); add(m.b,m.sb,m.sa);
+      // победа — по sa/sb (в теннисе это выигранные сеты); очки в зачёт — геймы (теннис) или очки
+      const add=(ids,sf,sa,pfv,pav)=>ids.forEach(id=>{const s=stats[id];if(!s)return;s.pf+=pfv;s.pa+=pav;s.played++;if(sf>sa)s.wins++;else if(sf<sa)s.losses++;});
+      const pA=isTennis()?(m.ga||0):m.sa, pB=isTennis()?(m.gb||0):m.sb;
+      add(m.a,m.sa,m.sb,pA,pB); add(m.b,m.sb,m.sa,pB,pA);
     });
     (r.byes||[]).forEach(id=>{if(stats[id])stats[id].byes++;});
   });
@@ -609,6 +628,7 @@ function setAdvance(n){state.advancePerGroup=n;save();render();}
 function setTarget(v){state.target=v;save();render();}
 function setCourts(d){state.courts=Math.max(1,Math.min(12,state.courts+d));save();render();}
 function setScoring(s){state.scoring=s;save();render();}
+function setTennisSets(n){state.tennisSets=n;save();render();}
 function setMaxRounds(n){state.maxRounds=n;save();render();}
 
 function addPlayer(){
@@ -817,6 +837,51 @@ function refreshLiveTables(){          // живое обновление сет
   if(isKO() || (isGroups()&&state.phase==="playoff")){ const b=document.getElementById("bracket"); if(b)renderBracket(); }
   else if(isGroups()){ const g=document.getElementById("groupTables"); if(g)renderGroupTables(); }
 }
+
+/* ---------- теннисный счёт (сеты/геймы): sa/sb = выигранные сеты, ga/gb = сумма геймов ---------- */
+function ensureSets(m){ if(!m.sets)m.sets=[]; while(m.sets.length<(state.tennisSets||1))m.sets.push([null,null]); return m.sets; }
+function recalcTennis(m){
+  ensureSets(m);
+  let setsA=0,setsB=0,gA=0,gB=0;
+  m.sets.forEach(s=>{ const a=s[0],b=s[1];
+    if(a!=null)gA+=a; if(b!=null)gB+=b;
+    if(a!=null&&b!=null&&a!==b){ if(a>b)setsA++; else setsB++; }
+  });
+  m.sa=setsA; m.sb=setsB; m.ga=gA; m.gb=gB;
+  const need=tennisNeed();
+  // ничья по договорённости (например 5:5) — тоже сыгранный матч: геймы в зачёт, победы никому
+  const allFilled=m.sets.length>0&&m.sets.every(s=>s[0]!=null&&s[1]!=null);
+  m.done=(setsA>=need||setsB>=need||allFilled);
+}
+function setTennisGame(mid,setIdx,side,raw){
+  const m=findMatch(mid); if(!m)return;
+  ensureSets(m);
+  const v=raw===""?null:Math.max(0,Math.min(99,parseInt(raw,10)||0));
+  m.sets[setIdx][side==="a"?0:1]=v;
+  recalcTennis(m); save();
+  updateMatchVisual(mid); renderStandings(); updateNextBtn(); refreshLiveTables();
+}
+function clearTennis(mid){
+  const m=findMatch(mid); if(!m)return;
+  m.sets=[]; ensureSets(m); m.sa=m.sb=m.ga=m.gb=null; m.done=false; save();
+  m.sets.forEach((s,i)=>["a","b"].forEach(sd=>{const el=document.getElementById("tn-"+mid+"-"+i+"-"+(sd==="a"?"a":"b"));if(el)el.value="";}));
+  updateMatchVisual(mid); renderStandings(); updateNextBtn(); refreshLiveTables();
+}
+function tennisScoreStr(m){
+  if(!m.sets)return "";
+  return m.sets.filter(s=>s[0]!=null||s[1]!=null).map(s=>(s[0]==null?"–":s[0])+":"+(s[1]==null?"–":s[1])).join(", ");
+}
+function tennisRowsHTML(m){
+  ensureSets(m);
+  const single=(state.tennisSets||1)===1;
+  return `<div class="tennis-entry">${m.sets.map((s,i)=>`
+    <div class="tset">
+      ${single?"":`<span class="tlabel">Сет ${i+1}</span>`}
+      <input id="tn-${m.id}-${i}-a" type="number" inputmode="numeric" min="0" max="9" placeholder="–" value="${s[0]==null?"":s[0]}" oninput="setTennisGame(${m.id},${i},'a',this.value)">
+      <span class="muted">:</span>
+      <input id="tn-${m.id}-${i}-b" type="number" inputmode="numeric" min="0" max="9" placeholder="–" value="${s[1]==null?"":s[1]}" oninput="setTennisGame(${m.id},${i},'b',this.value)">
+    </div>`).join("")}</div>`;
+}
 function applyScore(mid,side,val,fromTyping){
   const m=findMatch(mid);if(!m)return;
   const v=clampScore(val);
@@ -909,12 +974,6 @@ function setupHTML(){
         </div>
       </div>
 
-      <h3 style="margin-top:20px">Играем до скольки очков (за игру)</h3>
-      <div class="chips">
-        ${presets.map(v=>`<div class="chip ${state.target===v?"active":""}" onclick="setTarget(${v})">${v}</div>`).join("")}
-        <input type="number" min="1" style="width:90px" value="${state.target}" onchange="setTarget(Math.max(1,parseInt(this.value)||1))" title="Своё значение">
-      </div>
-
       <h3 style="margin-top:20px">Подсчёт очков</h3>
       <div class="mode-toggle">
         <div class="mode-card ${state.scoring==="fixed"?"active":""}" onclick="setScoring('fixed')">
@@ -925,7 +984,23 @@ function setupHTML(){
           <div class="t">Свободный счёт</div>
           <div class="d">Вводите очки каждой команды вручную (без фиксированной суммы).</div>
         </div>
+        <div class="mode-card ${isTennis()?"active":""}" onclick="setScoring('tennis')">
+          <div class="t">🎾 Теннисный счёт</div>
+          <div class="d">По геймам и сетам (6-4, 7-5). Победитель — по сетам, в зачёт идут геймы.</div>
+        </div>
       </div>
+
+      ${isTennis()?`
+      <h3 style="margin-top:20px">Матч до</h3>
+      <div class="chips">
+        <div class="chip ${(state.tennisSets||1)===1?"active":""}" onclick="setTennisSets(1)">1 сет</div>
+        <div class="chip ${state.tennisSets===3?"active":""}" onclick="setTennisSets(3)">2 из 3 сетов</div>
+      </div>`:`
+      <h3 style="margin-top:20px">Играем до скольки очков (за игру)</h3>
+      <div class="chips">
+        ${presets.map(v=>`<div class="chip ${state.target===v?"active":""}" onclick="setTarget(${v})">${v}</div>`).join("")}
+        <input type="number" min="1" style="width:90px" value="${state.target}" onchange="setTarget(Math.max(1,parseInt(this.value)||1))" title="Своё значение">
+      </div>`}
 
       ${(isKO()||isKing())?"":`
       <h3 style="margin-top:20px">Количество кортов</h3>
@@ -1256,8 +1331,30 @@ function renderCurrentRound(){
   r.matches.forEach(m=>updateMatchVisual(m.id));
 }
 
+function matchHeadLabel(m){
+  const left = m.group!=null ? ("👥 Группа "+groupLetter(m.group)) : ("🏷 "+((isKO()||isKing()||isGroups())?"Матч":"Корт")+" "+m.court);
+  const right = isTennis() ? ("теннис · "+((state.tennisSets||1)>1?"2 из 3":"1 сет"))
+              : state.scoring==="fixed" ? ("игра до "+state.target) : "свободный счёт";
+  return `<span>${left}</span><span class="target">${right}</span>`;
+}
 function matchHTML(m){
   const names=(ids)=>ids.map(id=>esc(unitName(id))).join(isTeams()?" / ":"<br>");
+  if(isTennis()){
+    return `
+    <div class="match" id="match-${m.id}">
+      <div class="court">${matchHeadLabel(m)}</div>
+      <div class="tn-head">
+        <span class="tn-name" id="tside-${m.id}-a">${names(m.a)}</span>
+        <span class="muted vs-mini">vs</span>
+        <span class="tn-name right" id="tside-${m.id}-b">${names(m.b)}</span>
+      </div>
+      ${tennisRowsHTML(m)}
+      <div class="match-foot">
+        <span class="mstatus" id="status-${m.id}"></span>
+        <button class="clr" onclick="clearTennis(${m.id})" title="Сбросить счёт">сброс</button>
+      </div>
+    </div>`;
+  }
   const ctrl=(side,val)=>`
     <div class="score-ctrl">
       <button class="stp" onclick="bumpScore(${m.id},'${side}',-1)">−</button>
@@ -1267,10 +1364,7 @@ function matchHTML(m){
     </div>`;
   return `
   <div class="match" id="match-${m.id}">
-    <div class="court">
-      <span>${m.group!=null ? ("👥 Группа "+groupLetter(m.group)) : ("🏷 "+((isKO()||isKing()||isGroups())?"Матч":"Корт")+" "+m.court)}</span>
-      <span class="target">${state.scoring==="fixed"?("игра до "+state.target):"свободный счёт"}</span>
-    </div>
+    <div class="court">${matchHeadLabel(m)}</div>
     <div class="side" id="side-${m.id}-a">
       <div class="names">${names(m.a)}</div>
       ${ctrl("a",m.sa)}
@@ -1289,6 +1383,18 @@ function matchHTML(m){
 
 function updateMatchVisual(mid){
   const m=findMatch(mid);if(!m)return;
+  if(isTennis()){
+    const ta=document.getElementById("tside-"+mid+"-a"), tb=document.getElementById("tside-"+mid+"-b");
+    if(ta)ta.classList.toggle("win", m.done&&m.sa>m.sb);
+    if(tb)tb.classList.toggle("win", m.done&&m.sb>m.sa);
+    const st=document.getElementById("status-"+mid);
+    if(st){
+      const sc=tennisScoreStr(m);
+      st.classList.remove("tie");
+      st.textContent = m.done ? ("✓ "+sideNamesInline(m.sa>m.sb?m.a:m.b)+" — "+sc) : (sc?("идёт: "+sc):"");
+    }
+    return;
+  }
   const a=document.getElementById("side-"+mid+"-a");
   const b=document.getElementById("side-"+mid+"-b");
   if(a)a.classList.toggle("win", m.done&&m.sa>m.sb);
@@ -1350,6 +1456,13 @@ function renderPastRounds(){
       + `<div class="hint" style="margin:2px 0 6px">Можно исправить счёт — таблица пересчитается.</div>`
       + r.matches.map(m=>{
           const aw=m.done&&m.sa>m.sb, bw=m.done&&m.sb>m.sa;
+          if(isTennis()){
+            return `<div class="past-match tn-past" id="prow-${m.id}">
+              <span class="pa ${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
+              ${tennisRowsHTML(m)}
+              <span class="pb ${bw?"w":""}">${m.b.map(id=>esc(unitName(id))).join(" / ")}</span>
+            </div>`;
+          }
           return `<div class="past-match" id="prow-${m.id}">
             <span class="pa ${aw?"w":""}">${m.a.map(id=>esc(unitName(id))).join(" / ")}</span>
             <span class="pedit">
