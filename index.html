@@ -345,6 +345,10 @@ function findMatch(mid){for(const r of state.rounds)for(const m of r.matches)if(
 function sideNamesInline(ids){return ids.map(id=>esc(unitName(id))).join(" + ");}
 function pluralRound(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"раундов";if(b>1&&b<5)return"раунда";if(b===1)return"раунд";return"раундов";}
 function pluralMatch(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"матчей";if(b>1&&b<5)return"матча";if(b===1)return"матч";return"матчей";}
+function pluralGame(n){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return"геймов";if(b>1&&b<5)return"гейма";if(b===1)return"гейм";return"геймов";}
+/* подпись режима счёта: в теннисе «до N очков» не имеет смысла */
+function scoreLabel(){return isTennis()?("теннис · "+((state.tennisSets||1)>1?"2 из 3 сетов":"1 сет")):("до "+state.target);}
+function ptsStr(n){return isTennis()?(n+" "+pluralGame(n)):(n+" очк.");}
 
 /* ---------- stats / standings ---------- */
 function computeStats(){
@@ -800,8 +804,8 @@ function resultsText(){
   const rows=standings();
   let t="🎾 Mexicano Padel — итоги\n";
   const fname=isKing()?"Кинг":isAmericano()?"Americano":isRR()?"Round robin":(isTeams()?"Команды":"Классический");
-  t+=fname+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · до "+state.target+"\n\n";
-  rows.forEach((r,i)=>{ t+=((isKing()&&i===0)?"👑 ":(i+1)+". ")+unitName(r.id)+" — "+(isRR()?(r.wins+"П, "+r.pf+" очк."):(r.pf+" очк. ("+r.wins+"П)"))+"\n"; });
+  t+=fname+" · "+state.rounds.length+" "+pluralRound(state.rounds.length)+" · "+scoreLabel()+"\n\n";
+  rows.forEach((r,i)=>{ t+=((isKing()&&i===0)?"👑 ":(i+1)+". ")+unitName(r.id)+" — "+(isRR()?(r.wins+"П, "+ptsStr(r.pf)):(ptsStr(r.pf)+" ("+r.wins+"П)"))+"\n"; });
   return t;
 }
 function flashMsg(text){
@@ -916,8 +920,10 @@ function clearScore(mid){
 function render(){
   const fmtName = isGroups() ? ("Группы"+(state.phase==="playoff"?" · плей-офф":"")) : isKing() ? "Кинг" : isKO() ? "Сетка на вылет" : isAmericano() ? "Americano" : isRR() ? "Round robin" : (isTeams()?"Команды":"Классический");
   const totalR = (isRR()||isKO()||isAmericano()) ? state.rounds.length : state.maxRounds;
-  const courtsSeg = (isKO()||isKing()||(isGroups()&&state.phase==="playoff")) ? "" : (" · " + state.courts + (state.courts===1?" корт":(state.courts<5?" корта":" кортов")));
-  const fmt = fmtName + " · до " + state.target + courtsSeg + (totalR?(" · "+totalR+" р."):"");
+  const playR = state.stage==="play" ? curRound() : null;
+  const nCourts = (playR&&playR.matches&&playR.matches.length) ? Math.min(state.courts, playR.matches.length) : state.courts;
+  const courtsSeg = (isKO()||isKing()||(isGroups()&&state.phase==="playoff")) ? "" : (" · " + nCourts + (nCourts===1?" корт":(nCourts<5?" корта":" кортов")));
+  const fmt = fmtName + " · " + scoreLabel() + courtsSeg + (totalR?(" · "+totalR+" р."):"");
   document.getElementById("topSub").textContent =
     state.stage==="setup" ? "Настройка турнира" : state.stage==="finish" ? "Итоги турнира" : fmt;
   document.getElementById("newBtn").style.display = state.stage==="setup" ? "none" : "";
@@ -1390,8 +1396,9 @@ function updateMatchVisual(mid){
     const st=document.getElementById("status-"+mid);
     if(st){
       const sc=tennisScoreStr(m);
-      st.classList.remove("tie");
-      st.textContent = m.done ? ("✓ "+sideNamesInline(m.sa>m.sb?m.a:m.b)+" — "+sc) : (sc?("идёт: "+sc):"");
+      if(!m.done){st.textContent = sc?("идёт: "+sc):"";st.classList.remove("tie");}
+      else if(m.sa===m.sb){st.textContent=(isKO()||isKing())?"⚠ Нужен победитель — измените счёт":("ничья — "+sc);st.classList.add("tie");}
+      else {st.textContent="✓ "+sideNamesInline(m.sa>m.sb?m.a:m.b)+" — "+sc;st.classList.remove("tie");}
     }
     return;
   }
@@ -1487,7 +1494,7 @@ function renderGroupTables(){
     return `<div class="panel" style="margin-bottom:14px">
       <h2 style="margin-bottom:10px">Группа ${groupLetter(gi)}</h2>
       <table>
-        <thead><tr><th>#</th><th style="text-align:left">Команда</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="Очки">Очки</th><th title="Разница">±</th></tr></thead>
+        <thead><tr><th>#</th><th style="text-align:left">Команда</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="${isTennis()?"Выигранные геймы":"Очки"}">${isTennis()?"Геймы":"Очки"}</th><th title="Разница">±</th></tr></thead>
         <tbody>${rows.map((r,i)=>`<tr class="${i<A?"lead":""}"><td><span class="rank">${i+1}</span></td><td class="name">${esc(unitName(r.id))}</td><td>${r.played}</td><td>${r.wins}</td><td class="pf">${r.pf}</td><td>${(r.pf-r.pa>0?"+":"")+(r.pf-r.pa)}</td></tr>`).join("")}</tbody>
       </table>
       <div class="hint" style="margin-top:8px">Топ-${A} выходят в плей-офф (подсвечены).</div>
@@ -1566,7 +1573,7 @@ function renderStandings(){
        </div>` : "";
   el.innerHTML=`
     <table>
-      <thead><tr><th>#</th><th style="text-align:left">${isTeams()?"Команда":"Игрок"}</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="Набранные очки">Очки</th><th title="Разница очков">±</th></tr></thead>
+      <thead><tr><th>#</th><th style="text-align:left">${isTeams()?"Команда":"Игрок"}</th><th title="Сыграно">И</th><th title="Победы">В</th><th title="${isTennis()?"Выигранные геймы":"Набранные очки"}">${isTennis()?"Геймы":"Очки"}</th><th title="Разница ${isTennis()?"геймов":"очков"}">±</th></tr></thead>
       <tbody>
         ${rows.map((r,i)=>`
           <tr class="${i===0?"lead":""}">
@@ -1579,7 +1586,7 @@ function renderStandings(){
           </tr>`).join("")}
       </tbody>
     </table>
-    <div class="hint" style="margin-top:10px">${isRR()?"Рейтинг — по победам, далее по разнице очков.":"Рейтинг — по сумме набранных очков, далее по разнице."}</div>
+    <div class="hint" style="margin-top:10px">${isRR()?("Рейтинг — по победам, далее по разнице "+(isTennis()?"геймов":"очков")+"."):("Рейтинг — по сумме набранных "+(isTennis()?"геймов":"очков")+", далее по разнице.")}</div>
     ${copyRow}`;
 }
 
@@ -1628,14 +1635,14 @@ function renderFinish(){
     <div class="panel finish">
       <h2 style="text-align:center;font-size:1.45rem">${isKing()?"👑 Кинг турнира":"🏆 Итоги турнира"}</h2>
       <div class="muted" style="text-align:center;margin-bottom:6px">
-        ${isKing()?"Кинг":isRR()?"Round robin":(isTeams()?"Команды":"Классический")} · ${state.rounds.length} ${pluralRound(state.rounds.length)} · до ${state.target}
+        ${isKing()?"Кинг":isRR()?"Round robin":(isTeams()?"Команды":"Классический")} · ${state.rounds.length} ${pluralRound(state.rounds.length)} · ${scoreLabel()}
       </div>
       <div class="podium">
         ${top.map((r,i)=>`
           <div class="pod pod${i}">
             <div class="medal">${medals[i]}</div>
             <div class="pname">${esc(unitName(r.id))}</div>
-            <div class="ppts">${isRR()?(r.wins+"П · "+r.pf+" очк."):(r.pf+" очк. · "+r.wins+"П")}</div>
+            <div class="ppts">${isRR()?(r.wins+"П · "+ptsStr(r.pf)):(ptsStr(r.pf)+" · "+r.wins+"П")}</div>
           </div>`).join("")}
       </div>
       <div id="standings"></div>
