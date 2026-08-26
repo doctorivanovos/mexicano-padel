@@ -444,11 +444,21 @@ function generateFullSchedule(){
 function generateAmericano(){
   const cr=circleRounds(state.players.map(p=>p.id));   // N-1 туров партнёрств (1-факторизация)
   state.rounds=[];
+  const restCnt={}; state.players.forEach(p=>restCnt[p.id]=0);   // равномерность отдыха между турами
   cr.forEach(pairs=>{
+    const ps=pairs.slice();
+    let bye=[];
+    if(ps.length%2===1){   // нечётное число пар: отдыхает пара, чьи игроки отдыхали меньше всех
+      let bi=ps.length-1,best=Infinity;
+      ps.forEach((p,i)=>{const s=restCnt[p[0]]+restCnt[p[1]];if(s<best){best=s;bi=i;}});
+      bye=ps.splice(bi,1)[0].slice();
+    }
     const matches=[];
-    for(let i=0;i+1<pairs.length;i+=2)
-      matches.push({id:uid("mid"),court:matches.length+1,a:pairs[i],b:pairs[i+1],sa:null,sb:null,done:false});
-    const bye=(pairs.length%2===1)?pairs[pairs.length-1]:[];  // нечётная пара отдыхает весь тур
+    for(let i=0;i+1<ps.length;i+=2)
+      matches.push({id:uid("mid"),court:matches.length+1,a:ps[i],b:ps[i+1],sa:null,sb:null,done:false});
+    const inP=new Set(); ps.forEach(p=>{inP.add(p[0]);inP.add(p[1]);});
+    state.players.forEach(p=>{ if(!inP.has(p.id)&&!bye.includes(p.id)) bye.push(p.id); }); // при нечётном N партнёр «фантома» тоже отдыхает
+    bye.forEach(id=>restCnt[id]++);
     state.rounds.push({n:state.rounds.length+1,matches,byes:bye,amer:true});
   });
   state.cur=0;
@@ -617,7 +627,8 @@ function generateNextKing(){
 function curRound(){return state.rounds[state.cur];}
 function roundComplete(r){return r&&r.matches.length>0&&r.matches.every(m=>m.done);}
 function roundWaiting(r){
-  if(!isRR()) return r.byes||[];
+  if(!isRR()&&!isAmericano()) return r.byes||[];
+  // RR/Americano: считаем «не играющих» по факту матчей (в т.ч. старые сейвы с пустыми byes)
   const playing=new Set();
   r.matches.forEach(m=>{m.a.forEach(x=>playing.add(x));m.b.forEach(x=>playing.add(x));});
   return getUnits().map(u=>u.id).filter(id=>!playing.has(id));
